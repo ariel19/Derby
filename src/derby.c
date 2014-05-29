@@ -338,27 +338,48 @@ handle_conn:
 void* horse_thread(void *arg) {
 	struct horse *horse = (struct horse *)arg;
 
-
 	_pthread_detach(pthread_self());	
 
-	/*
-	pthread_mutex_lock(data->mutex); while(!data->running) { pthread_cond_wait(data->cond, data->mutex); fprintf(stderr, "Horse: %s awaken!\n", data->name); } pthread_mutex_unlock(data->mutex); while(data->running) { fprintf(stderr, "Horse: %s waiting on barrier...\n", data->name); pthread_barrier_wait(data->barrier); fprintf(stderr, "Horse: %s done!\n", data->name); pthread_cond_wait(data->cond, data->mutex); pthread_mutex_unlock(data->mutex); }
-*/
+	_pthread_mutex_lock(horse->mutex);
+
+	while(!horse->running) {
+		_pthread_cond_wait(horse->cond, horse->mutex);
+		
+		fprintf(stderr, "horse: %s awaken!\n", horse->name);
+	}
+
+	_pthread_mutex_unlock(horse->mutex);
+
+	while(horse->running) {
+		fprintf(stderr, "horse: %s waiting on barrier!\n", horse->name);
+		//_pthread_barrier_wait(horse->barrier);
+
+		//TODO:  make distance
+		
+		fprintf(stderr, "horse: %s done!\n", horse->name);
+		
+		_pthread_cond_wait(horse->cond, horse->mutex);
+		_pthread_mutex_unlock(horse->mutex);
+	}	
 
 	return NULL;
 }
 
 // TODO: simulation of run
-void play() {
-
+void play(pthread_cond_t *cond) {
+	while(run) {
+		fprintf(stderr, "main: sleeping 1 sec\n");
+		sleep(1);	
+		_pthread_cond_broadcast(cond);
+	}
 } 
 
-void init_horse(struct horse *ph, const char *name, pthread_mutex_t *rm, pthread_cont_t *rc, pthred_barrier_t *rb) {
+void init_horse(struct horse *ph, const char *name, pthread_mutex_t *rm, pthread_cond_t *rc, pthread_barrier_t *rb) {
 	strncpy(ph->name, name, HORSE_NAME);
 	ph->name[HORSE_NAME] = 0;
 	ph->strength = START_STRENGTH;
 	ph->running = 0;
-	ph->mutext = rm;
+	ph->mutex = rm;
 	ph->cond = rc;
 	ph->barrier = rb;
 	_pthread_create(&(ph->tid), NULL, horse_thread, (void *)ph);
@@ -384,7 +405,7 @@ byte read_int(FILE *f, unsigned int *pval) {
 
 // TODO: implement sync
 // TODO: redone accept impementation
-void server_work(int listenfd, sigset_t *sint) {
+void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond) {
 	pthread_t tid;
 	int *iptr;
 	struct sockaddr_in cliaddr;
@@ -393,21 +414,26 @@ void server_work(int listenfd, sigset_t *sint) {
 	/*for signal handling*/
 	_sigprocmask(SIG_BLOCK, sint, NULL);
 
+	// ===============
+	// temporary
+	// ===============
+	run = 1;	
+
 	while (work) {
 		// accepting client, while there is no run
 		if (!run) {
 			clilen = sizeof(cliaddr); 
 			iptr = _malloc(sizeof(int));
-			*iptr = _accept(listenfd, (struct sockaddr *)&cliaddr, &clilen);
+			*iptr = accept(listenfd, (struct sockaddr *)&cliaddr, &clilen);
 			_pthread_create(&tid, NULL, client_thread, iptr);		
 		}
-		else play();
+		else play(cond);
 	}
 }
 
 // TODO: test function
 // TODO: check if could be done without counter
-byte parse_conf_file(const char *file, struct horse **horses, unsigned int *hn, unsigned int *rph, pthread_mutex_t *rm, pthread_cont_t *rc, pthred_barrier_t *rb) {
+byte parse_conf_file(const char *file, struct horse **horses, unsigned int *hn, unsigned int *rph, pthread_mutex_t *rm, pthread_cond_t *rc, pthread_barrier_t *rb) {
 	FILE *f;
 	char *canonical;
 	size_t len;
@@ -499,12 +525,16 @@ int main(int argc, char **argv) {
 
 	// init synchronization info
 	_pthread_mutex_init(&mutex, NULL);
+	_pthread_cond_init(&cond, NULL);
 
-	ret = parse_conf_file(argv[2], &horses, &horse_num, &pperh);
+	ret = parse_conf_file(argv[2], &horses, &horse_num, &pperh, &mutex, &cond, &barrier);
+
+	// TODO: randomly choose 8 horses => set is running => true
+
 	if (ret)
 		goto clean;	
 
-	server_work(listenfd, &sint);
+	server_work(listenfd, &sint, &cond);
 	
 	ret = EXIT_SUCCESS;
 

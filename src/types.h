@@ -1,5 +1,7 @@
 #pragma once
 
+#include <pthread.h>
+
 // return codes
 #define NULL_PTR				1
 #define CANONICALIZE_ERROR		2
@@ -52,5 +54,3 @@ struct user_node {
 	struct user *user;
 	struct user_node *next;
 };
-
-//enum req_types { LOGIN, WITHDRAW, PAY, SQUAD, PREV_RUN, NEXT_RUN, BET, INFO };

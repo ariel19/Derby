@@ -130,17 +130,41 @@ void _pthread_mutex_unlock(pthread_mutex_t *mutex) {
 }
 
 void _pthread_cond_init(pthread_cond_t *cond, pthread_condattr_t *cond_attr) {
+	if (pthread_cond_init(cond, cond_attr))
+		ERR("pthread_cond_init");
 }
 
 void _pthread_cond_signal(pthread_cond_t *cond) {
+	if (pthread_cond_signal(cond))
+		ERR("pthread_cond_signal");
 }
 
 void _pthread_cond_broadcast(pthread_cond_t *cond) {
-
+	if (pthread_cond_broadcast(cond))
+		ERR("pthread_cond_broadcast");
 }
 
 void _pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
+	if (pthread_cond_wait(cond, mutex))
+		ERR("pthread_cond_wait");
 }
 
-void _pthread_cond_destroy(pthred_cond_t *cond) {
+void _pthread_cond_destroy(pthread_cond_t *cond) {
+	if (pthread_cond_destroy(cond))
+		ERR("pthread_cond_destroy");
+}
+
+void _pthread_barrier_init(pthread_barrier_t *barrier, const pthread_barrierattr_t *attr, unsigned count) {
+	if (pthread_barrier_init(barrier, attr, count))	
+		ERR("pthread_barrier_init");
+}
+
+void _pthread_barrier_wait(pthread_barrier_t *barrier) {
+	if (pthread_barrier_wait(barrier))
+		ERR("pthread_barrier_wait");
+}
+
+void _pthread_barrier_destroy(pthread_barrier_t *barrier) {
+	if (pthread_barrier_destroy(barrier))
+		ERR("pthread_barrier_destroy");
 }

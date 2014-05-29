@@ -18,12 +18,18 @@ extern void * _malloc(int size);
 // pthreads
 extern void _pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine)(void *), void *arg); 
 extern void _pthread_detach(pthread_t thread);
+// mutexes
 extern void _pthread_mutex_init(pthread_mutex_t *mutex, pthread_mutexattr_t *mutexattr);
 extern void _pthread_mutex_destroy(pthread_mutex_t *mutex);
 extern void _pthread_mutex_lock(pthread_mutex_t *mutex);
 extern void _pthread_mutex_unlock(pthread_mutex_t *mutex);
+// conditionals
 extern void _pthread_cond_init(pthread_cond_t *cond, pthread_condattr_t *cond_attr);
 extern void _pthread_cond_signal(pthread_cond_t *cond);
 extern void _pthread_cond_broadcast(pthread_cond_t *cond);
 extern void _pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);
-extern void _pthread_cond_destroy(pthred_cond_t *cond);
+extern void _pthread_cond_destroy(pthread_cond_t *cond);
+// barriers
+extern void _pthread_barrier_init(pthread_barrier_t *barrier, const pthread_barrierattr_t *attr, unsigned count);
+extern void _pthread_barrier_wait(pthread_barrier_t *barrier);
+extern void _pthread_barrier_destroy(pthread_barrier_t *barrier);
