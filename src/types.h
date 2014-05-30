@@ -28,14 +28,27 @@
 
 typedef unsigned char byte;
 
+struct service {
+	/*current run*/
+	struct horse *horses[RUN_HORSES];
+	/*previous run*/
+	struct horse *prev_run[RUN_HORSES];
+	/*bank*/
+	unsigned int bank;
+	/*current run positions*/
+	struct horse *current_run[RUN_HORSES];	
+};
+
 struct horse {
 	char name[HORSE_NAME + 1] ;
 	int strength;
+	unsigned int distance;
 	byte running;
 	pthread_t tid;
 	pthread_mutex_t *mutex;
 	pthread_cond_t *cond;
 	pthread_barrier_t *barrier;
+	struct service *service;
 };
 
 // TODO: fullfill structure
@@ -43,6 +56,8 @@ struct user {
 	char name[LOGIN + 1];
 	int money;
 	int bet;
+	int *sockfd;
+	struct service *service;
 };
 
 struct list_user {

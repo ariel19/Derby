@@ -29,6 +29,10 @@ struct horse *horses[RUN_HORSES] = { 0 };
 /*previous run*/
 struct horse *prev_run[RUN_HORSES] = { 0 };
 
+// ==================
+// COMMUNICATION DATA
+// ==================
+
 char *req[CLI_FUNC] = { "log", "wth", "pay", "sqd", "rpr", "nrt", "bet", "inf" };
 
 char *invalid_method = "invalid method, for info send a <inf> request\n";
@@ -43,6 +47,10 @@ char *login_before = "You should login before money operations\n";
 char *invalid_money_format = "Invalid money format\n";
 char *invalid_bet_format = "Invalid bet format\n";
 char *first_run = "There are no any past runs\n";
+
+// ================
+// SIGNALS HANDLING
+// ================
 
 void sigint(int sig) {
 	work = 0;
@@ -64,6 +72,10 @@ byte req_info(const char *req, char **resp, struct user *user);
 
 byte (*requests[CLI_FUNC])(const char *, char **, struct user *) = { req_login, req_widthdrawal, req_payment,
 	req_squad, req_prevrun, req_nextrun, req_bet, req_info };
+
+// ================
+// COMMAND HANDLERS
+// ================
 
 // TODO: test
 byte req_login(const char *req, char **resp, struct user *user) {
@@ -292,15 +304,29 @@ inv_mth:
 	return ret;	
 }
 
+// ================================
+// CLIENT THREAD & HELPER FUNCTIONS
+// ================================
+
+void init_client(struct user *dest, struct user *src) {
+	dest->money = dest->bet = 0;
+	dest->service = src->service;
+
+	free(src->sockfd);
+	free(src);
+}
+
 // TODO: implement client thread
 void* client_thread(void *arg) {
-	int sockfd = *((int *)arg), j, ret;
+	struct user *__user = (struct user *)arg; 
+	struct user user;
+	int sockfd = *(__user->sockfd), j, ret;
 	size_t n;
 	char buf[MAXLEN + 1];
 	char *resp;
-	struct user user;
-	free(arg);
-
+	///////////////
+	init_client(&user, __user);
+	///////////////
 	_pthread_detach(pthread_self());	
 
 	while (1) {
@@ -334,12 +360,32 @@ handle_conn:
 	return NULL;
 }
 
+// ===============================
+// HORSE THREAD & HELPER FUNCTIONS
+// ===============================
+
+void* horse_thread(void *arg);
+
+void init_horse(struct horse *ph, const char *name, pthread_mutex_t *rm, pthread_cond_t *rc, pthread_barrier_t *rb, struct service *service) {
+	strncpy(ph->name, name, HORSE_NAME);
+	ph->name[HORSE_NAME] = 0;
+	ph->strength = START_STRENGTH;
+	ph->distance = 0;
+	ph->running = 0;
+	ph->mutex = rm;
+	ph->cond = rc;
+	ph->barrier = rb;
+	ph->service = service;
+	_pthread_create(&(ph->tid), NULL, horse_thread, (void *)ph);
+}
+
 // TODO: implement horse thread
 void* horse_thread(void *arg) {
 	struct horse *horse = (struct horse *)arg;
 
 	_pthread_detach(pthread_self());	
 
+start:
 	_pthread_mutex_lock(horse->mutex);
 
 	while(!horse->running) {
@@ -360,9 +406,24 @@ void* horse_thread(void *arg) {
 		
 		_pthread_cond_wait(horse->cond, horse->mutex);
 		_pthread_mutex_unlock(horse->mutex);
-	}	
+	}
+
+	// continue waiting after finishing a run	
+	horse->running = 0;
+	horse->distance = 0;
+	goto start;
 
 	return NULL;
+}
+
+// ==============================
+// SERVER WORK & HELPER FUNCTIONS
+// ==============================
+
+// TODO: add check if 
+void choose_run_horses(struct horse *horses, size_t horse_number) {
+	size_t cnt;
+		
 }
 
 // TODO: simulation of run
@@ -374,16 +435,41 @@ void play(pthread_cond_t *cond) {
 	}
 } 
 
-void init_horse(struct horse *ph, const char *name, pthread_mutex_t *rm, pthread_cond_t *rc, pthread_barrier_t *rb) {
-	strncpy(ph->name, name, HORSE_NAME);
-	ph->name[HORSE_NAME] = 0;
-	ph->strength = START_STRENGTH;
-	ph->running = 0;
-	ph->mutex = rm;
-	ph->cond = rc;
-	ph->barrier = rb;
-	_pthread_create(&(ph->tid), NULL, horse_thread, (void *)ph);
+// TODO: implement sync
+// TODO: redone accept impementation
+void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond, struct service *service) {
+	pthread_t tid;
+	int *iptr;
+	struct sockaddr_in cliaddr;
+	struct user *user;
+	socklen_t clilen;
+
+	/*for signal handling*/
+	_sigprocmask(SIG_BLOCK, sint, NULL);
+
+	// ===============
+	// temporary
+	// ===============
+	// run = 1;	
+
+	while (work) {
+		// accepting client, while there is no run
+		if (!run) {
+			clilen = sizeof(cliaddr); 
+			iptr = _malloc(sizeof(int));
+			*iptr = accept(listenfd, (struct sockaddr *)&cliaddr, &clilen);	
+			user = (struct user *)_malloc(sizeof(struct user));
+			user->sockfd = iptr;
+			user->service = service;
+			_pthread_create(&tid, NULL, client_thread, user);		
+		}
+		else play(cond);
+	}
 }
+
+// ====================================
+// PARSE CONFIG FILE & HELPER FUNCTIONS
+// ====================================
 
 byte read_int(FILE *f, unsigned int *pval) {
 	int tmp;
@@ -403,37 +489,10 @@ byte read_int(FILE *f, unsigned int *pval) {
 	return EXIT_SUCCESS;
 }
 
-// TODO: implement sync
-// TODO: redone accept impementation
-void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond) {
-	pthread_t tid;
-	int *iptr;
-	struct sockaddr_in cliaddr;
-	socklen_t clilen;
-
-	/*for signal handling*/
-	_sigprocmask(SIG_BLOCK, sint, NULL);
-
-	// ===============
-	// temporary
-	// ===============
-	run = 1;	
-
-	while (work) {
-		// accepting client, while there is no run
-		if (!run) {
-			clilen = sizeof(cliaddr); 
-			iptr = _malloc(sizeof(int));
-			*iptr = accept(listenfd, (struct sockaddr *)&cliaddr, &clilen);
-			_pthread_create(&tid, NULL, client_thread, iptr);		
-		}
-		else play(cond);
-	}
-}
-
 // TODO: test function
 // TODO: check if could be done without counter
-byte parse_conf_file(const char *file, struct horse **horses, unsigned int *hn, unsigned int *rph, pthread_mutex_t *rm, pthread_cond_t *rc, pthread_barrier_t *rb) {
+byte parse_conf_file(const char *file, struct horse **horses, unsigned int *hn, unsigned int *rph, pthread_mutex_t *rm, pthread_cond_t *rc, 
+						pthread_barrier_t *rb, struct service *service) {
 	FILE *f;
 	char *canonical;
 	size_t len;
@@ -458,7 +517,7 @@ byte parse_conf_file(const char *file, struct horse **horses, unsigned int *hn, 
 		*horses = _malloc(sizeof(struct horse) * *hn);		
 		h = *horses;	
 		while (cnt < *hn && (read = getline(&line, &len, f)) != -1) {
-			init_horse(&h[cnt], line, rm, rc, rb);
+			init_horse(&h[cnt], line, rm, rc, rb, service);
 			++cnt;
 		}
 			
@@ -476,9 +535,9 @@ byte parse_conf_file(const char *file, struct horse **horses, unsigned int *hn, 
 	return EXIT_SUCCESS;
 }
 
-void choose_run_horses(struct horse *horses, size_t horse_number) {
-	
-}
+// ======================
+// MAIN & USAGE FUNCTIONS
+// ======================
 
 void usage(const char *name) {
 	fprintf(stderr, "usage: %s <port> <config file>\n", name);
@@ -494,6 +553,7 @@ int main(int argc, char **argv) {
 	pthread_mutex_t mutex;
 	pthread_cond_t cond;
 	pthread_barrier_t barrier;		
+	struct service service;
 
 	if (argc != 3) {
 		usage(argv[0]);
@@ -527,14 +587,12 @@ int main(int argc, char **argv) {
 	_pthread_mutex_init(&mutex, NULL);
 	_pthread_cond_init(&cond, NULL);
 
-	ret = parse_conf_file(argv[2], &horses, &horse_num, &pperh, &mutex, &cond, &barrier);
-
-	// TODO: randomly choose 8 horses => set is running => true
+	ret = parse_conf_file(argv[2], &horses, &horse_num, &pperh, &mutex, &cond, &barrier, &service);
 
 	if (ret)
 		goto clean;	
 
-	server_work(listenfd, &sint, &cond);
+	server_work(listenfd, &sint, &cond, &service);
 	
 	ret = EXIT_SUCCESS;
 
@@ -542,7 +600,7 @@ clean:
 	/*closing listen file desc*/
 	_close(listenfd);
 	_pthread_mutex_destroy(&mutex);
-	
+	free(horses);	
 
 	return EXIT_SUCCESS;
 }
