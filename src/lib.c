@@ -168,3 +168,8 @@ void _pthread_barrier_destroy(pthread_barrier_t *barrier) {
 	if (pthread_barrier_destroy(barrier))
 		ERR("pthread_barrier_destroy");
 }
+
+void _pthread_sigmask(int how, const sigset_t *set, sigset_t *oldest) {
+	if(pthread_sigmask(how, set, oldest))
+		ERR("pthread_sigmask");
+}

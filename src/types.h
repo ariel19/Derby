@@ -16,6 +16,7 @@
 #define INVALID_BET_FORMAT		11
 #define FIRST_RUN				12
 
+// TODO: change RUN_HORSES value
 // predefined values
 #define HORSE_NAME 16
 #define LOGIN	16
@@ -25,18 +26,31 @@
 #define CLI_FUNC	8
 #define REQ_MTHD	3
 #define RUN_HORSES	8
+#define DISTANCE	100
 
 typedef unsigned char byte;
 
 struct service {
-	/*current run*/
-	struct horse *horses[RUN_HORSES];
+	/*last win horse*/
+	struct horse *win;
 	/*previous run*/
 	struct horse *prev_run[RUN_HORSES];
 	/*bank*/
 	unsigned int bank;
+	pthread_mutex_t *mbank;
 	/*current run positions*/
 	struct horse *current_run[RUN_HORSES];	
+	/*delay before next race*/
+	unsigned int delay;
+	/*next race time*/
+	/*number of connected clients*/
+	unsigned int clients;
+	/*is run finished*/
+	byte finished;
+	pthread_mutex_t *mfinished;
+	/*running horses*/
+	unsigned int cur_run;
+	pthread_mutex_t *mcur_run;
 };
 
 struct horse {

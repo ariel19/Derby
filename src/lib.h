@@ -33,3 +33,5 @@ extern void _pthread_cond_destroy(pthread_cond_t *cond);
 extern void _pthread_barrier_init(pthread_barrier_t *barrier, const pthread_barrierattr_t *attr, unsigned count);
 extern void _pthread_barrier_wait(pthread_barrier_t *barrier);
 extern void _pthread_barrier_destroy(pthread_barrier_t *barrier);
+// signals
+extern void _pthread_sigmask(int how, const sigset_t *set, sigset_t *oldest);
