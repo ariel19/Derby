@@ -20,7 +20,7 @@
 // predefined values
 #define HORSE_NAME 16
 #define LOGIN	16
-#define START_STRENGTH 10
+#define START_STRENGTH 100
 #define LISTENQ	  	1024	  
 #define MAXLEN		32
 #define CLI_FUNC	8
@@ -73,8 +73,8 @@ struct user {
 	int *sockfd;
 	struct service *service;
 	struct horse *horse;
-	//pthread_mutex_t *mutex;
-	//ptherad_cond_t *cond;
+	pthread_mutex_t *mutex;
+	pthread_cond_t *cond;
 };
 
 struct list_user {

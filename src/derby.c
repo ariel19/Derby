@@ -22,12 +22,6 @@
 /*state variables*/
 volatile sig_atomic_t work = 1;
 volatile sig_atomic_t run = 0;
-/*gloabal list variable*/
-
-/*current run*/
-struct horse *horses[RUN_HORSES] = { 0 };
-/*previous run*/
-struct horse *prev_run[RUN_HORSES] = { 0 };
 
 // ==================
 // COMMUNICATION DATA
@@ -52,7 +46,6 @@ char *horse_absent = "Horse is absent\n";
 // ================
 // SIGNALS HANDLING
 // ================
-
 void sigint(int sig) {
 	work = 0;
 }
@@ -309,8 +302,8 @@ byte parse_request(char *buf, size_t n, char **resp, struct user *user) {
 		if (!strcmp(method, req[j]))
 			break;
 	
-inv_mth:
 	if (j == CLI_FUNC) {
+inv_mth:
 		*resp = invalid_method;
 		return INVALID_METHOD;
 	}
@@ -329,6 +322,8 @@ inv_mth:
 
 void init_client(struct user *dest, struct user *src) {
 	memset(dest->name, 0, HORSE_NAME + 1);
+	dest->mutex = src->mutex;
+	dest->cond = src->cond;
 	dest->money = dest->bet = 0;
 	dest->service = src->service;
 	free(src->sockfd);
@@ -342,14 +337,19 @@ void* client_thread(void *arg) {
 	struct user user;
 	int sockfd = *(__user->sockfd), j, ret;
 	size_t n;
+	int i;
 	char buf[MAXLEN + 1];
-	char *resp;
+	char horse_buf[(HORSE_NAME + 13) * (RUN_HORSES + 1)];
+	char *resp, *p;
+	byte send_win = 0;
+
 	init_client(&user, __user);
 	_pthread_detach(pthread_self());	
 
 	while (1) {
 handle_conn:
 		if (!run) {
+			send_win = 0;	
 			// write on client terminal
 			if (!(n = read(sockfd, buf, MAXLEN))) {
 				if (errno == EINTR)
@@ -358,6 +358,8 @@ handle_conn:
 			}
 			else {
 				buf[n < MAXLEN ? n : MAXLEN] = 0;
+				if (buf[0] == '\r' || buf[0] == '\n')
+					goto handle_conn;
 				ret = parse_request(buf, n, &resp, &user);
 				fprintf(stderr, "RET: %d\n", ret);
 				// send response
@@ -368,9 +370,32 @@ handle_conn:
 		}
 		// send current state of run, and money after
 		else {
-			// send data about running horses	
-			// fprintf(stderr, "horses are running: %u\n", (unsigned int)pthread_self());	
-			// put a conditional here
+			if (send_win)
+				continue;
+
+			_pthread_mutex_lock(user.service->mfinished);	
+			if (!user.service->finished) {
+				//_write(sockfd, "horses are running\n", 19);
+				p = horse_buf;	
+				for (i = 0; i < RUN_HORSES; ++i) {
+					n = snprintf(p, HORSE_NAME + 12, "%s: %u\n", user.service->current_run[i]->name, user.service->current_run[i]->distance);
+					p += n;	
+				}
+				// for better readability	
+				snprintf(p, HORSE_NAME + 12, "%s\n", "====================");					
+					
+				_write(sockfd, (void *)horse_buf, strlen(horse_buf));
+	
+			}
+			else {
+				snprintf(buf, MAXLEN, "Winner: %s\n", user.service->win->name);
+				_write(sockfd, (void *)buf, strlen(buf));
+				
+				send_win = 1;
+			}	
+			_pthread_mutex_unlock(user.service->mfinished);	
+			
+			sleep(1);
 		}
 
 	}
@@ -574,7 +599,7 @@ check_for_horses:
 // TODO: implement sync
 // TODO: redone accept impementation
 // TODO: alarm!!!!!!!!!!!!!
-void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond, struct service *service, struct horse *horses, size_t horse_num) {
+void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond, pthread_mutex_t *mutex, struct service *service, struct horse *horses, size_t horse_num) {
 	pthread_t tid;
 	int *iptr;
 	struct sockaddr_in cliaddr;
@@ -594,7 +619,7 @@ void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond, struct serv
 	// TEST
 	// ----
 	// run = 1;
-	//alarm(20);
+	alarm(5);
 
 	while (work) {
 		// accepting client, while there is no run
@@ -604,13 +629,15 @@ void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond, struct serv
 			*iptr = accept(listenfd, (struct sockaddr *)&cliaddr, &clilen);	
 			if (run) {
 				free(iptr);
-				fprintf(stderr, "Continue\n");
-				fflush(stderr);
+				//fprintf(stderr, "Continue\n");
+				//fflush(stderr);
 				continue;
 			}
 			user = (struct user *)_malloc(sizeof(struct user));
 			user->sockfd = iptr;
 			user->service = service;
+			user->cond = cond;
+			user->mutex = mutex;
 			_pthread_create(&tid, NULL, client_thread, user);		
 		}
 		else play(cond, service, horses, horse_num);
@@ -711,7 +738,7 @@ void usage(const char *name) {
 
 // TODO: clean horses at the end of programm
 int main(int argc, char **argv) {
-	int i, listenfd, port, ret;
+	int i, listenfd, port, ret, t;
 	struct sockaddr_in servaddr;
 	sigset_t sint, sempty;
 	struct horse *horses;
@@ -730,12 +757,18 @@ int main(int argc, char **argv) {
 	port = atoi(argv[1]);
 
 	listenfd = _socket(PF_INET, SOCK_STREAM, 0);
-	
+
 	memset(&servaddr, sizeof(char), sizeof(servaddr));			
 
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	servaddr.sin_port = htons(port);
+
+	if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &t, sizeof(t)) < 0) {
+		fprintf(stderr, "setsockopt\n");
+		exit(EXIT_FAILURE);
+	}
+		
 
 	_bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
 
@@ -770,7 +803,7 @@ int main(int argc, char **argv) {
 
 	init_service(&service, &mfinished, &mbank, &mcur_run, (unsigned int)(60 * 60 / pperh));	
 
-	server_work(listenfd, &sint, &cond, &service, horses, horse_num);
+	server_work(listenfd, &sint, &cond, &mutex, &service, horses, horse_num);
 	
 	ret = EXIT_SUCCESS;
 
