@@ -87,7 +87,7 @@ byte req_login(const char *req, char **resp, struct user *user) {
 	// check if user is logged in
 	if (user->name[0]) {
 		*resp = log_already;
-		return LOGGED_ALREADY;
+		return SERVICE_LOGIN_ALREADY;
 	}
 	// parse input and validate login
 	ptr = req;
@@ -99,14 +99,14 @@ byte req_login(const char *req, char **resp, struct user *user) {
 	
 	if (!*ptr) {
 		*resp = log_blank;
-		return LOGIN_IS_BLANK; 
+		return SERVICE_LOGIN_IS_BLANK; 
 	}
 
 	_ptr = ptr;
 	while (*_ptr)
 		++_ptr;
 	
-	strncpy(user->name, ptr, _ptr - ptr > LOGIN ? LOGIN : _ptr - ptr);
+	strncpy(user->name, ptr, _ptr - ptr > USER_LOGIN_LENGTH ? USER_LOGIN_LENGTH : _ptr - ptr);
 	*resp = _malloc(32 * sizeof(char));
 	snprintf(*resp, 32, "Logged in: %s\n", user->name);
 
@@ -118,7 +118,7 @@ byte req_widthdrawal(const char *req, char **resp, struct user *user) {
 	int val;
 	if (!user->name[0]) {
 		*resp = login_before;
-		return NOT_LOGGED; 
+		return SERVICE_LOGIN_NONE; 
 	}
 	ptr = req;
 	while (*ptr && !isdigit(*ptr))
@@ -126,13 +126,13 @@ byte req_widthdrawal(const char *req, char **resp, struct user *user) {
 
 	if (!*ptr) {
 		*resp = invalid_money_format;
-		return INVALID_MONEY_FORMAT;
+		return SERVICE_INVALID_MONEY_FORMAT;
 	}
 
 	val = atoi(ptr);
 	if (val < 0 || (unsigned int)val > user->money) {
 		*resp = invalid_money_format;
-		return INVALID_MONEY_FORMAT;
+		return SERVICE_INVALID_MONEY_FORMAT;
 	}
 	
 	user->money -= val;
@@ -148,7 +148,7 @@ byte req_payment(const char *req, char **resp, struct user *user) {
 	int val;
 	if (!user->name[0]) {
 		*resp = login_before;
-		return NOT_LOGGED; 
+		return SERVICE_LOGIN_NONE; 
 	}
 	ptr = req;
 	while (*ptr && !isdigit(*ptr))
@@ -156,13 +156,13 @@ byte req_payment(const char *req, char **resp, struct user *user) {
 
 	if (!*ptr) {
 		*resp = invalid_money_format;
-		return INVALID_MONEY_FORMAT;
+		return SERVICE_INVALID_MONEY_FORMAT;
 	}
 
 	val = atoi(ptr);
 	if (val < 0) {
 		*resp = invalid_money_format;
-		return INVALID_MONEY_FORMAT;
+		return SERVICE_INVALID_MONEY_FORMAT;
 	}
 	
 	user->money += val;
@@ -177,11 +177,11 @@ byte req_squad(const char *req, char **resp, struct user *user) {
 	int i;
 	char *ptr;
 	int n;
-	n = (HORSE_NAME + 5) * RUN_HORSES;
+	n = (HORSE_NAME + 5) * HORSE_RUN;
 	*resp = _malloc(n);
 	memset(*resp, 0, n);
 	ptr = *resp;
-	for (i = 0; i < RUN_HORSES; ++i) {
+	for (i = 0; i < HORSE_RUN; ++i) {
 		n = snprintf(ptr, HORSE_NAME + 4, "%d. %s\n", i, user->service->current_run[i]->name);
 		ptr += n;	
 	}
@@ -197,7 +197,7 @@ byte req_prevrun(const char *req, char **resp, struct user *user) {
 	memset(*resp, 0, HORSE_NAME + 2);	
 	if (!user->service->win) {
 		*resp = first_run;
-		return FIRST_RUN;
+		return SERVICE_RACE_FIRST_RUN;
 	}
 	strncpy(*resp, user->service->win->name, HORSE_NAME);
 	(*resp)[strlen(*resp)] = '\n';	
@@ -220,7 +220,7 @@ byte req_bet(const char *req, char **resp, struct user *user) {
 	int val, i;
 	if (!user->name[0]) {
 		*resp = login_before;
-		return NOT_LOGGED; 
+		return SERVICE_LOGIN_NONE; 
 	}
 	ptr = req;
 	while (*ptr && !isdigit(*ptr))
@@ -228,13 +228,13 @@ byte req_bet(const char *req, char **resp, struct user *user) {
 
 	if (!*ptr) {
 		*resp = invalid_money_format;
-		return INVALID_BET_FORMAT;
+		return SERVICE_INVALID_BET_FORMAT;
 	}
 
 	val = atoi(ptr);
 	if (val < 0 || (unsigned int)val > user->money) {
 		*resp = invalid_money_format;
-		return INVALID_BET_FORMAT;
+		return SERVICE_INVALID_BET_FORMAT;
 	}
 
 	// check horse
@@ -243,7 +243,7 @@ byte req_bet(const char *req, char **resp, struct user *user) {
 
 	if (!*ptr) {
 		*resp = invalid_money_format;
-		return INVALID_BET_FORMAT;
+		return SERVICE_INVALID_BET_FORMAT;
 	}
 	_ptr = ptr;
 	while (*_ptr)
@@ -253,16 +253,16 @@ byte req_bet(const char *req, char **resp, struct user *user) {
 	*resp = _malloc(64 * sizeof(char));
 
 	// search for horse in currently running
-	for (i = 0; i < RUN_HORSES; ++i) {
+	for (i = 0; i < HORSE_RUN; ++i) {
 		if (!strcmp(ptr, user->service->current_run[i]->name)) {
 			user->horse = user->service->current_run[i];
 			break;
 		}
 	}
 	
-	if (i == RUN_HORSES) {
+	if (i == HORSE_RUN) {
 		*resp = horse_absent;
-		return ABSENT_HORSE;
+		return SERVICE_RACE_ABSENT_HORSE;
 	}
 
 	// add money to bank accout
@@ -277,7 +277,7 @@ byte req_bet(const char *req, char **resp, struct user *user) {
 
 byte req_info(const char *req, char **resp, struct user *user) {
 	*resp = info;	
-	return NON_FREE;
+	return SERVICE_NON_FREE;
 }
 
 /*parse input data*/
@@ -305,7 +305,7 @@ byte parse_request(char *buf, size_t n, char **resp, struct user *user) {
 	if (j == CLI_FUNC) {
 inv_mth:
 		*resp = invalid_method;
-		return INVALID_METHOD;
+		return SERVICE_INVALID_METHOD;
 	}
 	
 	//ret = (requests[j])(buf + REQ_MTHD, resp);	
@@ -338,8 +338,8 @@ void* client_thread(void *arg) {
 	int sockfd = *(__user->sockfd), j, ret;
 	size_t n;
 	int i;
-	char buf[MAXLEN + 1];
-	char horse_buf[(HORSE_NAME + 13) * (RUN_HORSES + 1)];
+	char buf[MSG_MAXLEN + 1];
+	char horse_buf[(HORSE_NAME + 13) * (HORSE_RUN + 1)];
 	char *resp, *p;
 	byte send_win = 0;
 
@@ -351,13 +351,13 @@ handle_conn:
 		if (!run) {
 			send_win = 0;	
 			// write on client terminal
-			if (!(n = read(sockfd, buf, MAXLEN))) {
+			if (!(n = read(sockfd, buf, MSG_MAXLEN))) {
 				if (errno == EINTR)
 					goto handle_conn;
 				break;
 			}
 			else {
-				buf[n < MAXLEN ? n : MAXLEN] = 0;
+				buf[n < MSG_MAXLEN ? n : MSG_MAXLEN] = 0;
 				if (buf[0] == '\r' || buf[0] == '\n')
 					goto handle_conn;
 				ret = parse_request(buf, n, &resp, &user);
@@ -377,7 +377,7 @@ handle_conn:
 			if (!user.service->finished) {
 				//_write(sockfd, "horses are running\n", 19);
 				p = horse_buf;	
-				for (i = 0; i < RUN_HORSES; ++i) {
+				for (i = 0; i < HORSE_RUN; ++i) {
 					n = snprintf(p, HORSE_NAME + 12, "%s: %u\n", user.service->current_run[i]->name, user.service->current_run[i]->distance);
 					p += n;	
 				}
@@ -388,7 +388,7 @@ handle_conn:
 	
 			}
 			else {
-				snprintf(buf, MAXLEN, "Winner: %s\n", user.service->win->name);
+				snprintf(buf, MSG_MAXLEN, "Winner: %s\n", user.service->win->name);
 				_write(sockfd, (void *)buf, strlen(buf));
 				
 				send_win = 1;
@@ -415,7 +415,7 @@ void init_horse(struct horse *ph, const char *name, pthread_mutex_t *rm, pthread
 	ph->name[HORSE_NAME] = 0;
 	if (ph->name[strlen(ph->name) - 1] == 0xa)
 		ph->name[strlen(ph->name) - 1] = 0;
-	ph->strength = START_STRENGTH;
+	ph->strength = HORSE_START_STRENGTH;
 	ph->distance = 0;
 	ph->running = 0;
 	ph->mutex = rm;
@@ -465,7 +465,7 @@ start:
 		fprintf(stderr, "horse %s: %u distance\n", horse->name, horse->distance);	
 		
 		// means that horse has finished a track
-		if (horse->distance >= DISTANCE) {
+		if (horse->distance >= TRACK_DISTANCE) {
 			fprintf(stderr, "horse %s: got a distance\n", horse->name);
 			_pthread_mutex_lock(service->mfinished);
 			if (service->finished) {
@@ -516,13 +516,13 @@ start:
 void choose_run_horses(struct horse *horses, size_t horse_number, struct service *service) {
 	size_t cnt = 0;
 	int i = 0;
-	if (horse_number < RUN_HORSES) {
-		fprintf(stderr, "Current number of horses is %d, should be at least %d\n", horse_number, RUN_HORSES);
+	if (horse_number < HORSE_RUN) {
+		fprintf(stderr, "Current number of horses is %d, should be at least %d\n", horse_number, HORSE_RUN);
 		exit(EXIT_FAILURE);
 	}
 	// set all running	
-	if (horse_number == RUN_HORSES) {
-		for (i = 0; i < RUN_HORSES; ++i) {
+	if (horse_number == HORSE_RUN) {
+		for (i = 0; i < HORSE_RUN; ++i) {
 			//horses[i].running = 1;
 			service->current_run[i] = &horses[i];	
 		}
@@ -530,7 +530,7 @@ void choose_run_horses(struct horse *horses, size_t horse_number, struct service
 	}
 
 	// choose randomly
-	while(cnt != RUN_HORSES) {	
+	while(cnt != HORSE_RUN) {	
 		i = rand() % horse_number;
 		if (!horses[i].running) {
 			//horses[i].running = 1;
@@ -541,7 +541,7 @@ void choose_run_horses(struct horse *horses, size_t horse_number, struct service
 
 void start_horses(struct service *service) {
 	int i;
-	for (i = 0; i < RUN_HORSES; ++i)
+	for (i = 0; i < HORSE_RUN; ++i)
 		service->current_run[i]->running = 1;
 }
 
@@ -582,11 +582,11 @@ check_for_horses:
 	_pthread_mutex_unlock(service->mfinished);
 
 	_pthread_mutex_lock(service->mcur_run);
-	service->cur_run = RUN_HORSES;
+	service->cur_run = HORSE_RUN;
 	_pthread_mutex_unlock(service->mcur_run);
 
 	/*
-	for (i = 0; i < RUN_HORSES; ++i)
+	for (i = 0; i < HORSE_RUN; ++i)
 		service->prev_run[i] = service->current_run[i];
 	*/
 	// choose new horses
@@ -656,12 +656,12 @@ byte read_int(FILE *f, unsigned int *pval) {
 
 	read = getline(&line, &len, f);		
 	if (read < 0)
-		return GETLINE_ERROR;
+		return FILE_GETLINE_ERROR;
 		
 	tmp = atoi(line);	
 	free(line);
 	if (tmp <= 0)
-		return INVALID_FILEFORMAT;
+		return FILE_INVALID_FORMAT;
 	*pval = tmp;
 	return EXIT_SUCCESS;
 }
@@ -707,7 +707,7 @@ byte parse_conf_file(const char *file, struct horse **horses, unsigned int *hn, 
 
 		free(canonical);
 	}
-	else return CANONICALIZE_ERROR;		
+	else return FILE_CANONICALIZE_ERROR;		
 
 	return EXIT_SUCCESS;
 }
@@ -721,7 +721,7 @@ void init_service(struct service *service, pthread_mutex_t *mf, pthread_mutex_t 
 	service->bank = 0;
 	service->finished = 0;
 	service->mcur_run = mcr;
-	service->cur_run = RUN_HORSES;
+	service->cur_run = HORSE_RUN;
 	service->delay =  delay;
 	// init first elemet of prev run with 0 in order to distinguish if run before current has occured
 	// service->prev_run[0] = NULL;
@@ -764,11 +764,7 @@ int main(int argc, char **argv) {
 	servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	servaddr.sin_port = htons(port);
 
-	if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &t, sizeof(t)) < 0) {
-		fprintf(stderr, "setsockopt\n");
-		exit(EXIT_FAILURE);
-	}
-		
+	_setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &t, sizeof(t));	
 
 	_bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
 

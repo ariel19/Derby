@@ -40,6 +40,11 @@ int _socket(int domain, int type, int protocol) {
 	return fd;	
 }
 
+void _setsockopt(int sockfd, int level, int optname, void *optval, socklen_t optlen) {
+	if (setsockopt(sockfd, level, optname, optval, optlen))
+		ERR("setsockopt");
+}
+
 void _bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
 	if (bind(sockfd, addr, addrlen))
 		ERR("bind");

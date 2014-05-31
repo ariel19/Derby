@@ -7,6 +7,7 @@ extern ssize_t _write(int sockfd, void *vptr, size_t n);
 extern int _socket(int domain, int type, int protocol);
 extern void _bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
 extern void _listen(int sockfd, int backlog);
+extern void _setsockopt(int sockfd, int level, int optname, void *optval, socklen_t optlen);
 extern int _accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 extern void _close(int sockfd);
 extern void (*_signal(int signo, void (*func)(int)))(int);

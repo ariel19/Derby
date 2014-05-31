@@ -3,30 +3,34 @@
 #include <pthread.h>
 
 // return codes
-#define NULL_PTR				1
-#define CANONICALIZE_ERROR		2
-#define GETLINE_ERROR			3
-#define INVALID_FILEFORMAT		4
-#define INVALID_METHOD			5
-#define NON_FREE				6
-#define LOGGED_ALREADY			7
-#define LOGIN_IS_BLANK			8
-#define NOT_LOGGED				9
-#define INVALID_MONEY_FORMAT 	10
-#define INVALID_BET_FORMAT		11
-#define FIRST_RUN				12
-#define ABSENT_HORSE			13
+//#define NULL_PTR					1
+// file parsing errors
+#define FILE_CANONICALIZE_ERROR		2
+#define FILE_GETLINE_ERROR			3
+#define FILE_INVALID_FORMAT			4
+// service errors
+#define SERVICE_INVALID_METHOD		5
+#define SERVICE_NON_FREE			6
+#define SERVICE_LOGIN_ALREADY		7
+#define SERVICE_LOGIN_IS_BLANK		8
+#define SERVICE_LOGIN_NONE			9
+#define SERVICE_INVALID_MONEY_FORMAT 10
+#define SERVICE_INVALID_BET_FORMAT	11
+#define SERVICE_RACE_FIRST_RUN		12
+#define SERVICE_RACE_ABSENT_HORSE	13
 
-// predefined values
+// horse
 #define HORSE_NAME 16
-#define LOGIN	16
-#define START_STRENGTH 100
+#define HORSE_START_STRENGTH 100
+#define HORSE_RUN	8
+#define TRACK_DISTANCE	100
+// user
+#define USER_LOGIN_LENGTH	16
+// service
 #define LISTENQ	  	1024	  
-#define MAXLEN		32
+#define MSG_MAXLEN	32
 #define CLI_FUNC	8
 #define REQ_MTHD	3
-#define RUN_HORSES	8
-#define DISTANCE	100
 
 typedef unsigned char byte;
 
@@ -39,7 +43,7 @@ struct service {
 	unsigned int bank;
 	pthread_mutex_t *mbank;
 	/*current run positions*/
-	struct horse *current_run[RUN_HORSES];	
+	struct horse *current_run[HORSE_RUN];	
 	/*delay before next race*/
 	unsigned int delay;
 	/*next race time*/
@@ -67,7 +71,7 @@ struct horse {
 
 // TODO: fullfill structure
 struct user {
-	char name[LOGIN + 1];
+	char name[USER_LOGIN_LENGTH + 1];
 	int money;
 	int bet;
 	int *sockfd;
