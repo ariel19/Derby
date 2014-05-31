@@ -29,17 +29,6 @@ struct horse *horses[RUN_HORSES] = { 0 };
 /*previous run*/
 struct horse *prev_run[RUN_HORSES] = { 0 };
 
-// ===============
-// SIGNAL BLOCKING
-// ===============
-void t_sigmask(int sig, int how) {
-	sigset_t set;
-	
-	_sigemptyset(&set);
-	_sigaddset(&set, sig);
-	_pthread_sigmask(how, &set, NULL);
-}
-
 // ==================
 // COMMUNICATION DATA
 // ==================
@@ -58,6 +47,7 @@ char *login_before = "You should login before money operations\n";
 char *invalid_money_format = "Invalid money format\n";
 char *invalid_bet_format = "Invalid bet format\n";
 char *first_run = "There are no any past runs\n";
+char *horse_absent = "Horse is absent\n";
 
 // ================
 // SIGNALS HANDLING
@@ -68,8 +58,18 @@ void sigint(int sig) {
 }
 
 void sigalarm(int sig) {
-	fprintf(stderr, "ALARM\n");
 	run = 1;
+}
+
+// ===============
+// SIGNAL BLOCKING
+// ===============
+void t_sigmask(int sig, int how) {
+	sigset_t set;
+	
+	_sigemptyset(&set);
+	_sigaddset(&set, sig);
+	_pthread_sigmask(how, &set, NULL);
 }
 
 /* define pointers to cli func */
@@ -180,43 +180,39 @@ byte req_payment(const char *req, char **resp, struct user *user) {
 	return EXIT_SUCCESS;
 }
 
-// TODO: implement
 byte req_squad(const char *req, char **resp, struct user *user) {
 	int i;
 	char *ptr;
 	int n;
-	*resp = _malloc((HORSE_NAME + 5) * RUN_HORSES);
-	memset(*resp, 0, (HORSE_NAME + 5) * RUN_HORSES);
+	n = (HORSE_NAME + 5) * RUN_HORSES;
+	*resp = _malloc(n);
+	memset(*resp, 0, n);
 	ptr = *resp;
 	for (i = 0; i < RUN_HORSES; ++i) {
-		n = snprintf(ptr, HORSE_NAME + 4, "%d. %s\n", i, *horses[i]);
+		n = snprintf(ptr, HORSE_NAME + 4, "%d. %s\n", i, user->service->current_run[i]->name);
 		ptr += n;	
 	}
-		
+	
 	return EXIT_SUCCESS;
 }
 
-// TODO: test
 byte req_prevrun(const char *req, char **resp, struct user *user) {
 	int i;
 	char *ptr;
 	int n;
-	*resp = _malloc((HORSE_NAME + 5) * RUN_HORSES);
-	memset(*resp, 0, (HORSE_NAME + 5) * RUN_HORSES);
-	ptr = *resp;
-	if (!prev_run[0]) {
+	*resp = _malloc(HORSE_NAME + 2);
+	memset(*resp, 0, HORSE_NAME + 2);	
+	if (!user->service->win) {
 		*resp = first_run;
 		return FIRST_RUN;
-	}	
-
-	for (i = 0; i < RUN_HORSES; ++i) {
-		n = snprintf(ptr, HORSE_NAME + 4, "%d. %s\n", i, *horses[i]);
-		ptr += n;	
 	}
+	strncpy(*resp, user->service->win->name, HORSE_NAME);
+	(*resp)[strlen(*resp)] = '\n';	
+
 	return EXIT_SUCCESS;
 }
 
-// TODO: test
+// TODO: implement
 byte req_nextrun(const char *req, char **resp, struct user *user) {
 	*resp = (char *)malloc(4);	
 	strncpy(*resp, "ntr", 3);
@@ -225,9 +221,10 @@ byte req_nextrun(const char *req, char **resp, struct user *user) {
 }
 
 // TODO: implement
+// TODO: test
 byte req_bet(const char *req, char **resp, struct user *user) {
 	char *ptr, *_ptr;
-	int val;
+	int val, i;
 	if (!user->name[0]) {
 		*resp = login_before;
 		return NOT_LOGGED; 
@@ -255,7 +252,6 @@ byte req_bet(const char *req, char **resp, struct user *user) {
 		*resp = invalid_money_format;
 		return INVALID_BET_FORMAT;
 	}
-	// TODO: xxxxxxxxxxxxxxxxx
 	_ptr = ptr;
 	while (*_ptr)
 		++_ptr;
@@ -263,8 +259,25 @@ byte req_bet(const char *req, char **resp, struct user *user) {
 	user->bet = val;
 	*resp = _malloc(64 * sizeof(char));
 
-	// hardcoded
-	snprintf(*resp, 64, "Bet %u credits in %s horse.\n", (unsigned int)val, "Masha");
+	// search for horse in currently running
+	for (i = 0; i < RUN_HORSES; ++i) {
+		if (!strcmp(ptr, user->service->current_run[i]->name)) {
+			user->horse = user->service->current_run[i];
+			break;
+		}
+	}
+	
+	if (i == RUN_HORSES) {
+		*resp = horse_absent;
+		return ABSENT_HORSE;
+	}
+
+	// add money to bank accout
+	_pthread_mutex_lock(user->service->mbank);
+	user->service->bank += (unsigned int)val;
+	_pthread_mutex_unlock(user->service->mbank);
+	
+	snprintf(*resp, 64, "Bet %u credits on %s horse.\n", (unsigned int)val, ptr);
 
 	return EXIT_SUCCESS;
 }
@@ -275,8 +288,6 @@ byte req_info(const char *req, char **resp, struct user *user) {
 }
 
 /*parse input data*/
-// TODO: parse request packets
-// TODO: change ret :)
 byte parse_request(char *buf, size_t n, char **resp, struct user *user) {
 	int j, ret;
 	static char method[REQ_MTHD + 1] = { 0 };
@@ -308,7 +319,6 @@ inv_mth:
 	
 	byte (*fn)(const char *, char **, struct user *user);
 	fn = requests[j];
-	fn(buf + REQ_MTHD, resp, user);
 	
 	return fn(buf + REQ_MTHD, resp, user);
 }
@@ -318,19 +328,15 @@ inv_mth:
 // ================================
 
 void init_client(struct user *dest, struct user *src) {
+	memset(dest->name, 0, HORSE_NAME + 1);
 	dest->money = dest->bet = 0;
 	dest->service = src->service;
-
-	fprintf(stderr, "BEFORE FREE\n");
-	fflush(stderr);
 	free(src->sockfd);
 	free(src);
-	fprintf(stderr, "AFTER FREE\n");
-	fflush(stderr);
 }
 
-// TODO: implement client thread
 // TODO: send data about running horses	
+// TODO: send money at the end of race
 void* client_thread(void *arg) {
 	struct user *__user = (struct user *)arg; 
 	struct user user;
@@ -338,9 +344,7 @@ void* client_thread(void *arg) {
 	size_t n;
 	char buf[MAXLEN + 1];
 	char *resp;
-	///////////////
 	init_client(&user, __user);
-	///////////////
 	_pthread_detach(pthread_self());	
 
 	while (1) {
@@ -358,20 +362,17 @@ handle_conn:
 				fprintf(stderr, "RET: %d\n", ret);
 				// send response
 				_write(sockfd, (void *)resp, strlen(resp));
-				if (!ret) {
-					fprintf(stderr, "FUCK!\n");
-					fflush(stderr);
+				if (!ret)
 					free(resp);
-					fprintf(stderr, "FUCK!!!!!!!!!!!!!!!\n");
-					fflush(stderr);
-				}
 			}
 		}
 		// send current state of run, and money after
 		else {
 			// send data about running horses	
-			//fprintf(stderr, "horses are running: %u\n", (unsigned int)pthread_self());	
+			// fprintf(stderr, "horses are running: %u\n", (unsigned int)pthread_self());	
+			// put a conditional here
 		}
+
 	}
 	
 	_close(sockfd);
@@ -559,8 +560,10 @@ check_for_horses:
 	service->cur_run = RUN_HORSES;
 	_pthread_mutex_unlock(service->mcur_run);
 
+	/*
 	for (i = 0; i < RUN_HORSES; ++i)
 		service->prev_run[i] = service->current_run[i];
+	*/
 	// choose new horses
 	choose_run_horses(horses, horse_num, service);	
 
@@ -590,7 +593,8 @@ void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond, struct serv
 	// ----
 	// TEST
 	// ----
-	run = 1;
+	// run = 1;
+	//alarm(20);
 
 	while (work) {
 		// accepting client, while there is no run
@@ -684,12 +688,17 @@ byte parse_conf_file(const char *file, struct horse **horses, unsigned int *hn, 
 // =================
 // SERVICE FUNCTIONS
 // =================
-void init_service(struct service *service, pthread_mutex_t *mf, pthread_mutex_t *mb, pthread_mutex_t *mcr) {
+void init_service(struct service *service, pthread_mutex_t *mf, pthread_mutex_t *mb, pthread_mutex_t *mcr, unsigned int delay) {
 	service->mfinished = mf;
 	service->mbank = mb;
+	service->bank = 0;
 	service->finished = 0;
 	service->mcur_run = mcr;
 	service->cur_run = RUN_HORSES;
+	service->delay =  delay;
+	// init first elemet of prev run with 0 in order to distinguish if run before current has occured
+	// service->prev_run[0] = NULL;
+	service->win = NULL;
 }
 
 // ======================
@@ -743,9 +752,6 @@ int main(int argc, char **argv) {
 		exit(EXIT_FAILURE);
 	}
 
-	/*delay before next race*/	
-	service.delay = 60 / pperh;	
-
 	if (ret)
 		goto clean;	
 
@@ -762,7 +768,7 @@ int main(int argc, char **argv) {
 	_pthread_mutex_init(&mbank, NULL);
 	_pthread_mutex_init(&mcur_run, NULL);
 
-	init_service(&service, &mfinished, &mbank, &mcur_run);	
+	init_service(&service, &mfinished, &mbank, &mcur_run, (unsigned int)(60 * 60 / pperh));	
 
 	server_work(listenfd, &sint, &cond, &service, horses, horse_num);
 	

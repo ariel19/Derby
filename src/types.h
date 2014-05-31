@@ -15,8 +15,8 @@
 #define INVALID_MONEY_FORMAT 	10
 #define INVALID_BET_FORMAT		11
 #define FIRST_RUN				12
+#define ABSENT_HORSE			13
 
-// TODO: change RUN_HORSES value
 // predefined values
 #define HORSE_NAME 16
 #define LOGIN	16
@@ -34,7 +34,7 @@ struct service {
 	/*last win horse*/
 	struct horse *win;
 	/*previous run*/
-	struct horse *prev_run[RUN_HORSES];
+	//struct horse *prev_run[RUN_HORSES];
 	/*bank*/
 	unsigned int bank;
 	pthread_mutex_t *mbank;
@@ -72,6 +72,9 @@ struct user {
 	int bet;
 	int *sockfd;
 	struct service *service;
+	struct horse *horse;
+	//pthread_mutex_t *mutex;
+	//ptherad_cond_t *cond;
 };
 
 struct list_user {
