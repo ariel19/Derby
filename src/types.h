@@ -37,13 +37,16 @@ typedef unsigned char byte;
 struct service {
 	/*last win horse*/
 	struct horse *win;
-	/*previous run*/
-	//struct horse *prev_run[RUN_HORSES];
 	/*bank*/
 	unsigned int bank;
 	pthread_mutex_t *mbank;
 	/*current run positions*/
 	struct horse *current_run[HORSE_RUN];	
+	/*mutex on i'th horse*/
+	pthread_mutex_t *mhb;
+	/*bet for i'th horse*/
+	unsigned int horse_bet[HORSE_RUN];
+	unsigned int copy_horse_bet[HORSE_RUN];
 	/*delay before next race*/
 	unsigned int delay;
 	/*next race time*/
@@ -77,8 +80,8 @@ struct user {
 	int *sockfd;
 	struct service *service;
 	struct horse *horse;
-	pthread_mutex_t *mutex;
-	pthread_cond_t *cond;
+	int id;
+	pthread_mutex_t *mhb;
 };
 
 struct list_user {

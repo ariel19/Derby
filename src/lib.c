@@ -104,6 +104,13 @@ void * _malloc(int size) {
 	return buf;
 }
 
+void _sleep(time_t s, long ns) {
+	struct timespec tt, t = { s, ns };	
+	for (tt = t; nanosleep(&tt, &tt);)
+		if (errno != EINTR)
+			ERR("nanosleep");
+}
+
 void _pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine)(void *), void *arg) {
 	if (pthread_create(thread, attr, start_routine, arg) != 0)
 		ERR("pthread_create");

@@ -213,8 +213,8 @@ byte req_nextrun(const char *req, char **resp, struct user *user) {
 	return EXIT_SUCCESS;
 }
 
-// TODO: implement
 // TODO: test
+// TODO: add mutex for horse bet
 byte req_bet(const char *req, char **resp, struct user *user) {
 	char *ptr, *_ptr;
 	int val, i;
@@ -256,6 +256,8 @@ byte req_bet(const char *req, char **resp, struct user *user) {
 	for (i = 0; i < HORSE_RUN; ++i) {
 		if (!strcmp(ptr, user->service->current_run[i]->name)) {
 			user->horse = user->service->current_run[i];
+			++user->service->horse_bet[i];
+			user->id = i;
 			break;
 		}
 	}
@@ -268,6 +270,7 @@ byte req_bet(const char *req, char **resp, struct user *user) {
 	// add money to bank accout
 	_pthread_mutex_lock(user->service->mbank);
 	user->service->bank += (unsigned int)val;
+	user->money -= (unsigned int)val;
 	_pthread_mutex_unlock(user->service->mbank);
 	
 	snprintf(*resp, 64, "Bet %u credits on %s horse.\n", (unsigned int)val, ptr);
@@ -308,8 +311,6 @@ inv_mth:
 		return SERVICE_INVALID_METHOD;
 	}
 	
-	//ret = (requests[j])(buf + REQ_MTHD, resp);	
-	
 	byte (*fn)(const char *, char **, struct user *user);
 	fn = requests[j];
 	
@@ -322,15 +323,16 @@ inv_mth:
 
 void init_client(struct user *dest, struct user *src) {
 	memset(dest->name, 0, HORSE_NAME + 1);
-	dest->mutex = src->mutex;
-	dest->cond = src->cond;
+	//dest->mutex = src->mutex;
+	//dest->cond = src->cond;
+	dest->mhb = src->mhb;
 	dest->money = dest->bet = 0;
 	dest->service = src->service;
+	dest->id = -1;
 	free(src->sockfd);
 	free(src);
 }
 
-// TODO: send data about running horses	
 // TODO: send money at the end of race
 void* client_thread(void *arg) {
 	struct user *__user = (struct user *)arg; 
@@ -341,6 +343,7 @@ void* client_thread(void *arg) {
 	char buf[MSG_MAXLEN + 1];
 	char horse_buf[(HORSE_NAME + 13) * (HORSE_RUN + 1)];
 	char *resp, *p;
+	unsigned int _money;
 	byte send_win = 0;
 
 	init_client(&user, __user);
@@ -352,8 +355,10 @@ handle_conn:
 			send_win = 0;	
 			// write on client terminal
 			if (!(n = read(sockfd, buf, MSG_MAXLEN))) {
-				if (errno == EINTR)
+				if (errno == EINTR) {
+					fprintf(stderr, "interrupted by signal\n");
 					goto handle_conn;
+				}
 				break;
 			}
 			else {
@@ -375,27 +380,41 @@ handle_conn:
 
 			_pthread_mutex_lock(user.service->mfinished);	
 			if (!user.service->finished) {
-				//_write(sockfd, "horses are running\n", 19);
 				p = horse_buf;	
 				for (i = 0; i < HORSE_RUN; ++i) {
 					n = snprintf(p, HORSE_NAME + 12, "%s: %u\n", user.service->current_run[i]->name, user.service->current_run[i]->distance);
 					p += n;	
 				}
-				// for better readability	
 				snprintf(p, HORSE_NAME + 12, "%s\n", "====================");					
 					
 				_write(sockfd, (void *)horse_buf, strlen(horse_buf));
 	
 			}
 			else {
-				snprintf(buf, MSG_MAXLEN, "Winner: %s\n", user.service->win->name);
+				_money = 0;
+
+				if (user.horse && !strcmp(user.horse->name, user.service->win->name)) {
+					_pthread_mutex_lock(user.service->mbank);
+
+					_pthread_mutex_lock(user.service->mhb);	
+					_money = user.service->bank / user.service->copy_horse_bet[user.id];
+					--user.service->copy_horse_bet[user.id];	
+					user.service->bank -= _money;
+					user.money += _money;
+					
+					_pthread_mutex_unlock(user.service->mhb);
+					_pthread_mutex_unlock(user.service->mbank);			
+				} 
+				
+				snprintf(buf, MSG_MAXLEN * 2, "Winner: %s; you won %u; your current accout: %u\n", user.service->win->name, _money, user.money);
 				_write(sockfd, (void *)buf, strlen(buf));
 				
 				send_win = 1;
+				user.horse = NULL;
 			}	
 			_pthread_mutex_unlock(user.service->mfinished);	
 			
-			sleep(1);
+			_sleep(1, 0);
 		}
 
 	}
@@ -410,6 +429,7 @@ handle_conn:
 
 void* horse_thread(void *arg);
 
+// TODO: delete PAWEL!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 void init_horse(struct horse *ph, const char *name, pthread_mutex_t *rm, pthread_cond_t *rc, pthread_barrier_t *rb, struct service *service) {
 	strncpy(ph->name, name, HORSE_NAME);
 	ph->name[HORSE_NAME] = 0;
@@ -417,6 +437,12 @@ void init_horse(struct horse *ph, const char *name, pthread_mutex_t *rm, pthread
 		ph->name[strlen(ph->name) - 1] = 0;
 	ph->strength = HORSE_START_STRENGTH;
 	ph->distance = 0;
+	/*
+	if (!strcmp(ph->name, "Pawel")) {
+		fprintf(stderr, "Trick\n");
+		ph->distance = 90;
+	}
+	*/
 	ph->running = 0;
 	ph->mutex = rm;
 	ph->cond = rc;
@@ -473,8 +499,8 @@ start:
 				break;
 			}
 			fprintf(stderr, "horse %s: WINS\n", horse->name);	
-			service->finished = 1;
 			service->win = horse;
+			service->finished = 1;
 
 			_pthread_mutex_unlock(service->mfinished);
 			break;
@@ -492,9 +518,11 @@ start:
 	
 	horse->running = 0;
 	horse->distance = 0;
+	/*
+	if (!strcmp(horse->name, "Pawel"))
+		horse->distance = 90;
+	*/
 
-	//fprintf(stderr, "BLOCKING MUTEX: HORSE\n");
-	//fflush(stderr);	
 	_pthread_mutex_lock(service->mcur_run);
 	--service->cur_run;
 	fprintf(stderr, "cur_run %d\n", service->cur_run);
@@ -549,7 +577,19 @@ void start_horses(struct service *service) {
 // TODO: set alarm
 void play(pthread_cond_t *cond, struct service *service, struct horse *horses, size_t horse_num) {
 	int i;
+	
+	// copy horse bets
+	_pthread_mutex_lock(service->mhb);
+	memcpy(service->copy_horse_bet, service->horse_bet, sizeof(unsigned int) * HORSE_RUN);	
+	_pthread_mutex_unlock(service->mhb);
+	
+	// be sure that noone is using value
+	_pthread_mutex_lock(service->mfinished);
+	service->finished = 0;
+	_pthread_mutex_unlock(service->mfinished);
+
 	start_horses(service);
+
 	while(run) {
 		_pthread_mutex_lock(service->mfinished);
 		if (service->finished) {
@@ -568,32 +608,33 @@ check_for_horses:
 			}
 			else {
 				_pthread_mutex_unlock(service->mcur_run);
-				sleep(1);
+				//sleep(1);
+				_sleep(1, 0);
 				goto check_for_horses;
 			}
 		}
 		_pthread_mutex_unlock(service->mfinished);	
 		fprintf(stderr, "=========================\nmain: sleeping 1 sec\n===============================\n");
-		sleep(1);	
+		// sleep(1);	
+		_sleep(1, 0);
 		_pthread_cond_broadcast(cond);
 	}
+	/*
 	_pthread_mutex_lock(service->mfinished);
 	service->finished = 0;
 	_pthread_mutex_unlock(service->mfinished);
-
+	*/
 	_pthread_mutex_lock(service->mcur_run);
 	service->cur_run = HORSE_RUN;
 	_pthread_mutex_unlock(service->mcur_run);
 
-	/*
-	for (i = 0; i < HORSE_RUN; ++i)
-		service->prev_run[i] = service->current_run[i];
-	*/
 	// choose new horses
 	choose_run_horses(horses, horse_num, service);	
+	memset(service->horse_bet, 0, sizeof(unsigned int) * HORSE_RUN);
+	
+	run = 0; 
 
-	run = 0;
-	alarm(5);	
+	alarm(20);
 } 
 
 // TODO: implement sync
@@ -636,8 +677,9 @@ void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond, pthread_mut
 			user = (struct user *)_malloc(sizeof(struct user));
 			user->sockfd = iptr;
 			user->service = service;
-			user->cond = cond;
-			user->mutex = mutex;
+			//user->cond = cond;
+			//user->mutex = mutex;
+			user->mhb = service->mhb;
 			_pthread_create(&tid, NULL, client_thread, user);		
 		}
 		else play(cond, service, horses, horse_num);
@@ -715,17 +757,17 @@ byte parse_conf_file(const char *file, struct horse **horses, unsigned int *hn, 
 // =================
 // SERVICE FUNCTIONS
 // =================
-void init_service(struct service *service, pthread_mutex_t *mf, pthread_mutex_t *mb, pthread_mutex_t *mcr, unsigned int delay) {
+void init_service(struct service *service, pthread_mutex_t *mf, pthread_mutex_t *mb, pthread_mutex_t *mcr, pthread_mutex_t *mhb, unsigned int delay) {
 	service->mfinished = mf;
 	service->mbank = mb;
+	service->mhb = mhb;
 	service->bank = 0;
 	service->finished = 0;
 	service->mcur_run = mcr;
 	service->cur_run = HORSE_RUN;
 	service->delay =  delay;
-	// init first elemet of prev run with 0 in order to distinguish if run before current has occured
-	// service->prev_run[0] = NULL;
 	service->win = NULL;
+	memset(service->horse_bet, 0, sizeof(unsigned int) * HORSE_RUN);
 }
 
 // ======================
@@ -743,7 +785,7 @@ int main(int argc, char **argv) {
 	sigset_t sint, sempty;
 	struct horse *horses;
 	unsigned int horse_num, pperh;	
-	pthread_mutex_t mutex, mfinished, mbank, mcur_run;
+	pthread_mutex_t mutex, mfinished, mbank, mcur_run, mhb;
 	pthread_cond_t cond;
 	pthread_barrier_t barrier;		
 	struct service service;
@@ -796,8 +838,9 @@ int main(int argc, char **argv) {
 	_pthread_mutex_init(&mfinished, NULL);
 	_pthread_mutex_init(&mbank, NULL);
 	_pthread_mutex_init(&mcur_run, NULL);
+	_pthread_mutex_init(&mhb, NULL);
 
-	init_service(&service, &mfinished, &mbank, &mcur_run, (unsigned int)(60 * 60 / pperh));	
+	init_service(&service, &mfinished, &mbank, &mcur_run, &mhb, (unsigned int)(60 * 60 / pperh));	
 
 	server_work(listenfd, &sint, &cond, &mutex, &service, horses, horse_num);
 	
@@ -820,6 +863,7 @@ clean:
 	fprintf(stderr, "Current run mutex\n");
 	fflush(stderr);
 	_pthread_mutex_destroy(&mcur_run);
+	_pthread_mutex_destroy(&mhb);
 	free(horses);	
 
 	return EXIT_SUCCESS;

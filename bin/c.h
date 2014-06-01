@@ -1,6 +1,4 @@
-10
-Vader
-Anakin
+8
 Dasha
 Masha
 Sasha

@@ -15,6 +15,7 @@ extern void _sigemptyset(sigset_t *set);
 extern void _sigaddset(sigset_t *set, int sig);
 extern void _sigprocmask(int how, const sigset_t *set, sigset_t *old);
 extern void * _malloc(int size);
+extern void _sleep(time_t s, long ns);
 
 // pthreads
 extern void _pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine)(void *), void *arg); 
