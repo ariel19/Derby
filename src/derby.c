@@ -480,7 +480,7 @@ unsigned int horse_make_step(struct horse *horse) {
 
 unsigned int horse_restore_strength(unsigned int strength) {
 	double rnd = (double)rand() / (double)RAND_MAX;
-	unsigned int ret = (1000 * rnd) / strength + rand() % 5 + 1;
+	unsigned int ret = (500 * rnd) / strength + rand() % 5 + 1;
 	fprintf(stderr, "restore %u\n", ret);
 	return ret;
 }
@@ -577,24 +577,29 @@ start:
 void choose_run_horses(struct horse *horses, size_t horse_number, struct service *service) {
 	size_t cnt = 0;
 	int i = 0;
+	byte *rh = _malloc(sizeof(byte) * horse_number);
+
+	memset(rh, 0, sizeof(byte) * horse_number);
+
 	if (horse_number < HORSE_RUN) {
 		fprintf(stderr, "Current number of horses is %d, should be at least %d\n", horse_number, HORSE_RUN);
 		exit(EXIT_FAILURE);
 	}
 	// set all running	
 	if (horse_number == HORSE_RUN) {
-		for (i = 0; i < HORSE_RUN; ++i) {
-			//horses[i].running = 1;
+		for (i = 0; i < HORSE_RUN; ++i)
 			service->current_run[i] = &horses[i];	
-		}
 		return;
 	}
 
 	// choose randomly
 	while(cnt != HORSE_RUN) {	
 		i = rand() % horse_number;
-		if (!horses[i].running) {
-			//horses[i].running = 1;
+		fprintf(stderr, "random: %d\n", i);
+		if (!rh[i]) {
+			rh[i] = 1;
+			fprintf(stderr, "choose: %d %s\n", i, horses[i].name);
+			fflush(stderr);
 			service->current_run[cnt++] = &horses[i];
 		}
 	}
@@ -664,6 +669,7 @@ check_for_horses:
 	_pthread_mutex_unlock(service->mcur_run);
 
 	// choose new horses
+	memset(service->current_run, 0, sizeof(struct horse *) * HORSE_RUN);
 	choose_run_horses(horses, horse_num, service);	
 	memset(service->horse_bet, 0, sizeof(unsigned int) * HORSE_RUN);
 	
@@ -690,12 +696,7 @@ void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond, pthread_mut
 	
 	// set alarm for next run
 	choose_run_horses(horses, horse_num, service);
-	//alarm(service->delay);
 
-	// ----
-	// TEST
-	// ----
-	// run = 1;
 	alarm(service->delay);
 
 	while (work) {
@@ -742,7 +743,6 @@ byte read_int(FILE *f, unsigned int *pval) {
 }
 
 // TODO: test function
-// TODO: check if could be done without counter
 byte parse_conf_file(const char *file, struct horse **horses, unsigned int *hn, unsigned int *rph, pthread_mutex_t *rm, pthread_cond_t *rc, 
 						pthread_barrier_t *rb, struct service *service) {
 	FILE *f;
@@ -803,6 +803,7 @@ void init_service(struct service *service, pthread_mutex_t *mf, pthread_mutex_t 
 	set_next_race_time(service);
 	service->win = NULL;
 	memset(service->horse_bet, 0, sizeof(unsigned int) * HORSE_RUN);
+	memset(service->current_run, 0, sizeof(struct horse *) * HORSE_RUN);
 }
 
 // ======================
