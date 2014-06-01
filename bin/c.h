@@ -7,4 +7,4 @@ Pawel
 Nadia
 Kacper
 Srasha
-5
+60

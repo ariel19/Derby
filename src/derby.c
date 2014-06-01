@@ -65,6 +65,29 @@ void t_sigmask(int sig, int how) {
 	_pthread_sigmask(how, &set, NULL);
 }
 
+// ==============
+// TIME FUNCTIONS
+// ==============
+void set_next_race_time(struct service *service) {
+	time_t now = time(NULL);
+	struct tm *tm_now = localtime(&now);
+	if (!tm_now)
+		ERR("localtime");
+	struct tm tm_then = *tm_now;
+	tm_then.tm_min += service->delay;
+	_pthread_mutex_lock(service->mnr);
+	service->next_race = mktime(&tm_then);
+	_pthread_mutex_unlock(service->mnr);				
+}
+
+char* get_next_race_time(struct service *service) {
+	char *ret;
+	_pthread_mutex_lock(service->mnr);
+	ret = ctime(&service->next_race);
+	_pthread_mutex_unlock(service->mnr);
+	return ret;	
+}
+
 /* define pointers to cli func */
 byte req_login(const char *req, char **resp, struct user *user);
 byte req_widthdrawal(const char *req, char **resp, struct user *user);
@@ -205,16 +228,12 @@ byte req_prevrun(const char *req, char **resp, struct user *user) {
 	return EXIT_SUCCESS;
 }
 
-// TODO: implement
+// TODO: test
 byte req_nextrun(const char *req, char **resp, struct user *user) {
-	*resp = (char *)malloc(4);	
-	strncpy(*resp, "ntr", 3);
-	(*resp)[3] = 0;
-	return EXIT_SUCCESS;
+	*resp = get_next_race_time(user->service);		
+	return SERVICE_NON_FREE;
 }
 
-// TODO: test
-// TODO: add mutex for horse bet
 byte req_bet(const char *req, char **resp, struct user *user) {
 	char *ptr, *_ptr;
 	int val, i;
@@ -349,7 +368,7 @@ void* client_thread(void *arg) {
 	init_client(&user, __user);
 	_pthread_detach(pthread_self());	
 
-	while (1) {
+	while (work) {
 handle_conn:
 		if (!run) {
 			send_win = 0;	
@@ -429,7 +448,6 @@ handle_conn:
 
 void* horse_thread(void *arg);
 
-// TODO: delete PAWEL!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 void init_horse(struct horse *ph, const char *name, pthread_mutex_t *rm, pthread_cond_t *rc, pthread_barrier_t *rb, struct service *service) {
 	strncpy(ph->name, name, HORSE_NAME);
 	ph->name[HORSE_NAME] = 0;
@@ -437,12 +455,6 @@ void init_horse(struct horse *ph, const char *name, pthread_mutex_t *rm, pthread
 		ph->name[strlen(ph->name) - 1] = 0;
 	ph->strength = HORSE_START_STRENGTH;
 	ph->distance = 0;
-	/*
-	if (!strcmp(ph->name, "Pawel")) {
-		fprintf(stderr, "Trick\n");
-		ph->distance = 90;
-	}
-	*/
 	ph->running = 0;
 	ph->mutex = rm;
 	ph->cond = rc;
@@ -451,12 +463,28 @@ void init_horse(struct horse *ph, const char *name, pthread_mutex_t *rm, pthread
 	_pthread_create(&(ph->tid), NULL, horse_thread, (void *)ph);
 }
 
-unsigned int horse_make_step() {
-	return rand() % 30;
+unsigned int horse_make_step(struct horse *horse) {
+	double rnd = 0.5 + (double)rand() / (double)RAND_MAX;
+	unsigned int ret = 5 + (((10 - rand() % 5) * (horse->strength / 10 + 1)) / 10);
+	if (horse->strength < 10)
+		return 5;
+
+	horse->strength = (horse->strength - ret * rnd);
+	if (horse->strength < 0)
+		horse->strength = 7;
+
+
+	fprintf(stderr, "step: %d\n", ret);
+	return ret;
 }
 
-// TODO: implement horse thread
-// TODO: add win mutex
+unsigned int horse_restore_strength(unsigned int strength) {
+	double rnd = (double)rand() / (double)RAND_MAX;
+	unsigned int ret = (1000 * rnd) / strength + rand() % 5 + 1;
+	fprintf(stderr, "restore %u\n", ret);
+	return ret;
+}
+
 void* horse_thread(void *arg) {
 	struct horse *horse = (struct horse *)arg;
 	struct service *service = horse->service;
@@ -467,9 +495,14 @@ start:
 	_pthread_mutex_lock(horse->mutex);
 
 	while(!horse->running) {
+		// restore strenght
+		if (horse->strength < HORSE_START_STRENGTH) {
+			horse->strength = (horse->strength + horse_restore_strength(horse->strength));
+			if (horse->strength >= HORSE_START_STRENGTH)
+				horse->strength = HORSE_START_STRENGTH;
+			fprintf(stderr, "restore horse strength: %d\n", horse->strength);	
+		}
 		_pthread_cond_wait(horse->cond, horse->mutex);
-		
-		//fprintf(stderr, "horse: %s awaken!\n", horse->name);
 	}
 
 	_pthread_mutex_unlock(horse->mutex);
@@ -487,7 +520,7 @@ start:
 		_pthread_mutex_unlock(service->mfinished);
 
 		// make step	
-		horse->distance += horse_make_step();
+		horse->distance += horse_make_step(horse);
 		fprintf(stderr, "horse %s: %u distance\n", horse->name, horse->distance);	
 		
 		// means that horse has finished a track
@@ -619,11 +652,13 @@ check_for_horses:
 		_sleep(1, 0);
 		_pthread_cond_broadcast(cond);
 	}
+
 	/*
 	_pthread_mutex_lock(service->mfinished);
 	service->finished = 0;
 	_pthread_mutex_unlock(service->mfinished);
 	*/
+
 	_pthread_mutex_lock(service->mcur_run);
 	service->cur_run = HORSE_RUN;
 	_pthread_mutex_unlock(service->mcur_run);
@@ -632,13 +667,14 @@ check_for_horses:
 	choose_run_horses(horses, horse_num, service);	
 	memset(service->horse_bet, 0, sizeof(unsigned int) * HORSE_RUN);
 	
+	// set new time for next run
+	set_next_race_time(service);		
+
 	run = 0; 
 
-	alarm(20);
+	alarm(service->delay);
 } 
 
-// TODO: implement sync
-// TODO: redone accept impementation
 // TODO: alarm!!!!!!!!!!!!!
 void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond, pthread_mutex_t *mutex, struct service *service, struct horse *horses, size_t horse_num) {
 	pthread_t tid;
@@ -660,7 +696,7 @@ void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond, pthread_mut
 	// TEST
 	// ----
 	// run = 1;
-	alarm(5);
+	alarm(service->delay);
 
 	while (work) {
 		// accepting client, while there is no run
@@ -670,15 +706,12 @@ void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond, pthread_mut
 			*iptr = accept(listenfd, (struct sockaddr *)&cliaddr, &clilen);	
 			if (run) {
 				free(iptr);
-				//fprintf(stderr, "Continue\n");
-				//fflush(stderr);
 				continue;
 			}
 			user = (struct user *)_malloc(sizeof(struct user));
 			user->sockfd = iptr;
 			user->service = service;
-			//user->cond = cond;
-			//user->mutex = mutex;
+			user->mnr = service->mnr;
 			user->mhb = service->mhb;
 			_pthread_create(&tid, NULL, client_thread, user);		
 		}
@@ -757,15 +790,17 @@ byte parse_conf_file(const char *file, struct horse **horses, unsigned int *hn, 
 // =================
 // SERVICE FUNCTIONS
 // =================
-void init_service(struct service *service, pthread_mutex_t *mf, pthread_mutex_t *mb, pthread_mutex_t *mcr, pthread_mutex_t *mhb, unsigned int delay) {
+void init_service(struct service *service, pthread_mutex_t *mf, pthread_mutex_t *mb, pthread_mutex_t *mcr, pthread_mutex_t *mhb, pthread_mutex_t *mnr, unsigned int delay) {
 	service->mfinished = mf;
 	service->mbank = mb;
 	service->mhb = mhb;
+	service->mnr = mnr;
 	service->bank = 0;
 	service->finished = 0;
 	service->mcur_run = mcr;
 	service->cur_run = HORSE_RUN;
 	service->delay =  delay;
+	set_next_race_time(service);
 	service->win = NULL;
 	memset(service->horse_bet, 0, sizeof(unsigned int) * HORSE_RUN);
 }
@@ -785,7 +820,7 @@ int main(int argc, char **argv) {
 	sigset_t sint, sempty;
 	struct horse *horses;
 	unsigned int horse_num, pperh;	
-	pthread_mutex_t mutex, mfinished, mbank, mcur_run, mhb;
+	pthread_mutex_t mutex, mfinished, mbank, mcur_run, mhb, mnr;
 	pthread_cond_t cond;
 	pthread_barrier_t barrier;		
 	struct service service;
@@ -815,16 +850,28 @@ int main(int argc, char **argv) {
 	// init synchronization info
 	_pthread_mutex_init(&mutex, NULL);
 	_pthread_cond_init(&cond, NULL);
+
+	// service info
+	_pthread_mutex_init(&mfinished, NULL);
+	_pthread_mutex_init(&mbank, NULL);
+	_pthread_mutex_init(&mcur_run, NULL);
+	_pthread_mutex_init(&mhb, NULL);
+	_pthread_mutex_init(&mnr, NULL);
 	
 	ret = parse_conf_file(argv[2], &horses, &horse_num, &pperh, &mutex, &cond, &barrier, &service);
-	
-	if (!pperh || pperh > 60) {
-		fprintf(stderr, "races per hour %u should be more than 0 and less than 61\n", pperh);
-		exit(EXIT_FAILURE);
-	}
 
 	if (ret)
 		goto clean;	
+	
+	if (!pperh || pperh > 60) {
+		fprintf(stderr, "races per hour %u should be more than 0 and less than 61\n", pperh);
+		goto clean;
+	}
+
+#if 1
+	fprintf(stderr, "delay = %u\n", (60 * 60) / pperh);
+	fflush(stderr);
+#endif
 
 	_signal(SIGINT, sigint);
 	_signal(SIGALRM, sigalarm);
@@ -833,14 +880,8 @@ int main(int argc, char **argv) {
 	t_sigmask(SIGALRM, SIG_BLOCK);	
 	
 	srand(time(NULL));	
-	
-	// service info
-	_pthread_mutex_init(&mfinished, NULL);
-	_pthread_mutex_init(&mbank, NULL);
-	_pthread_mutex_init(&mcur_run, NULL);
-	_pthread_mutex_init(&mhb, NULL);
 
-	init_service(&service, &mfinished, &mbank, &mcur_run, &mhb, (unsigned int)(60 * 60 / pperh));	
+	init_service(&service, &mfinished, &mbank, &mcur_run, &mhb, &mnr, (unsigned int)(60 * 60 / pperh));	
 
 	server_work(listenfd, &sint, &cond, &mutex, &service, horses, horse_num);
 	
@@ -851,7 +892,7 @@ clean:
 	fprintf(stderr, "Start cleaning...\n");
 	fflush(stderr);
 	_close(listenfd);
-	fprintf(stderr, "GLobal mutex\n");
+	fprintf(stderr, "Global mutex\n");
 	fflush(stderr);
 	_pthread_mutex_destroy(&mutex);
 	fprintf(stderr, "Finished mutex\n");
@@ -864,6 +905,8 @@ clean:
 	fflush(stderr);
 	_pthread_mutex_destroy(&mcur_run);
 	_pthread_mutex_destroy(&mhb);
+	_pthread_mutex_destroy(&mnr);
+
 	free(horses);	
 
 	return EXIT_SUCCESS;

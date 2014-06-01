@@ -51,16 +51,13 @@ struct service {
 	/*delay before next race*/
 	unsigned int delay;
 	/*next race time*/
-	time_t next_race;
-	/*mutex on next_race time*/
-	pthread_mutex_t *mnr; 
 	/*number of connected clients*/
 	unsigned int clients;
 	/*is run finished*/
 	byte finished;
 	/*mutex on fonished value*/
 	pthread_mutex_t *mfinished;
-	/*number of running horses*/
+	/*running horses*/
 	unsigned int cur_run;
 	pthread_mutex_t *mcur_run;
 };
@@ -87,7 +84,6 @@ struct user {
 	struct horse *horse;
 	int id;
 	pthread_mutex_t *mhb;
-	pthread_mutex_t *mnr;
 };
 
 struct list_user {
