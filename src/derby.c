@@ -365,12 +365,17 @@ void* client_thread(void *arg) {
 	struct user user;
 	int sockfd = *(__user->sockfd), j, ret;
 	size_t n;
-	int i;
+	int i, nready;
 	char buf[MSG_MAXLEN + 1];
 	char horse_buf[(HORSE_NAME + 13) * (HORSE_RUN + 1)];
 	char *resp, *p;
 	unsigned int _money;
 	byte send_win = 0;
+	fd_set rset, active;
+	struct timeval tv, active_tv = { 0, 0 };
+
+	FD_ZERO(&active);
+	FD_SET(sockfd, &active);
 
 	init_client(&user, __user);
 	_pthread_detach(pthread_self());	
@@ -378,19 +383,27 @@ void* client_thread(void *arg) {
 	while (work) {
 handle_conn:
 		if (!run) {
-			send_win = 0;	
+			send_win = 0;
+			rset = active;
+			tv = active_tv;
+
+			nready = select(sockfd + 1, &rset, NULL, NULL, &tv);
+			if ((nready < 0 && errno == EINTR) || !nready)
+				continue;
+		
+			// someone wants to write	
 			// write on client terminal
 			if (!(n = read(sockfd, buf, MSG_MAXLEN))) {
 				if (errno == EINTR) {
 					fprintf(stderr, "interrupted by signal\n");
-					goto handle_conn;
+					continue;
 				}
 				break;
 			}
 			else {
 				buf[n < MSG_MAXLEN ? n : MSG_MAXLEN] = 0;
 				if (buf[0] == '\r' || buf[0] == '\n')
-					goto handle_conn;
+					continue;
 				ret = parse_request(buf, n, &resp, &user);
 				fprintf(stderr, "RET: %d\n", ret);
 				// send response
