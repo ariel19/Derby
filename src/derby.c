@@ -309,7 +309,6 @@ byte req_info(const char *req, char **resp, struct user *user) {
 	return SERVICE_NON_FREE;
 }
 
-/*parse input data*/
 byte parse_request(char *buf, size_t n, char **resp, struct user *user) {
 	int j, ret;
 	static char method[REQ_MTHD + 1] = { 0 };
@@ -349,8 +348,6 @@ inv_mth:
 
 void init_client(struct user *dest, struct user *src) {
 	memset(dest->name, 0, HORSE_NAME + 1);
-	//dest->mutex = src->mutex;
-	//dest->cond = src->cond;
 	dest->mhb = src->mhb;
 	dest->money = dest->bet = 0;
 	dest->service = src->service;
@@ -359,7 +356,36 @@ void init_client(struct user *dest, struct user *src) {
 	free(src);
 }
 
-// TODO: send money at the end of race
+void send_horse_cur_info(int sockfd, char *horse_buf, struct user *user) {
+	size_t n;
+	int i;
+	char *p;
+
+	p = horse_buf;	
+	for (i = 0; i < HORSE_RUN; ++i) {
+		n = snprintf(p, HORSE_NAME + 12, "%s: %u\n", user->service->current_run[i]->name, user->service->current_run[i]->distance);
+		p += n;	
+	}
+	snprintf(p, HORSE_NAME + 12, "%s\n", "====================");					
+		
+	_write(sockfd, (void *)horse_buf, strlen(horse_buf));
+}
+
+void update_money(struct user *user, unsigned int _money) {
+	if (user->horse && !strcmp(user->horse->name, user->service->win->name)) {
+		_pthread_mutex_lock(user->service->mbank);
+
+		_pthread_mutex_lock(user->service->mhb);	
+		_money = user->service->bank / user->service->copy_horse_bet[user->id];
+		--user->service->copy_horse_bet[user->id];	
+		user->service->bank -= _money;
+		user->money += _money;
+		
+		_pthread_mutex_unlock(user->service->mhb);
+		_pthread_mutex_unlock(user->service->mbank);			
+	} 
+}
+
 void* client_thread(void *arg) {
 	struct user *__user = (struct user *)arg; 
 	struct user user;
@@ -372,7 +398,7 @@ void* client_thread(void *arg) {
 	unsigned int _money;
 	byte send_win = 0;
 	fd_set rset, active;
-	struct timeval tv, active_tv = { 0, 0 };
+	struct timeval tv, active_tv = { 0, 100 };
 
 	FD_ZERO(&active);
 	FD_SET(sockfd, &active);
@@ -380,7 +406,7 @@ void* client_thread(void *arg) {
 	init_client(&user, __user);
 	_pthread_detach(pthread_self());	
 
-	while (work) {
+	while (work || run) {
 handle_conn:
 		if (!run) {
 			send_win = 0;
@@ -419,6 +445,7 @@ handle_conn:
 
 			_pthread_mutex_lock(user.service->mfinished);	
 			if (!user.service->finished) {
+				/*
 				p = horse_buf;	
 				for (i = 0; i < HORSE_RUN; ++i) {
 					n = snprintf(p, HORSE_NAME + 12, "%s: %u\n", user.service->current_run[i]->name, user.service->current_run[i]->distance);
@@ -427,11 +454,13 @@ handle_conn:
 				snprintf(p, HORSE_NAME + 12, "%s\n", "====================");					
 					
 				_write(sockfd, (void *)horse_buf, strlen(horse_buf));
+				*/
+				send_horse_cur_info(sockfd, horse_buf, &user);
 	
 			}
 			else {
 				_money = 0;
-
+				/*
 				if (user.horse && !strcmp(user.horse->name, user.service->win->name)) {
 					_pthread_mutex_lock(user.service->mbank);
 
@@ -444,6 +473,8 @@ handle_conn:
 					_pthread_mutex_unlock(user.service->mhb);
 					_pthread_mutex_unlock(user.service->mbank);			
 				} 
+				*/
+				update_money(&user, _money);
 				
 				snprintf(buf, MSG_MAXLEN * 2, "Winner: %s; you won %u; your current accout: %u\n", user.service->win->name, _money, user.money);
 				_write(sockfd, (void *)buf, strlen(buf));
@@ -457,8 +488,9 @@ handle_conn:
 		}
 
 	}
-	
+
 	_close(sockfd);
+
 	return NULL;
 }
 
@@ -739,6 +771,10 @@ void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond, pthread_mut
 			clilen = sizeof(cliaddr); 
 			iptr = _malloc(sizeof(int));
 			*iptr = accept(listenfd, (struct sockaddr *)&cliaddr, &clilen);	
+			if (*iptr < 0) {
+				if (errno == EINTR)
+					continue;
+			}
 			if (run) {
 				free(iptr);
 				continue;
@@ -752,6 +788,8 @@ void server_work(int listenfd, sigset_t *sint, pthread_cond_t *cond, pthread_mut
 		}
 		else play(cond, service, horses, horse_num);
 	}
+
+	_close(listenfd);
 }
 
 // ====================================
@@ -858,7 +896,7 @@ void init_sync(pthread_mutex_t *mutex, pthread_cond_t *cond, pthread_mutex_t *mf
 }
 
 int init_socket(int port) {
-	int listenfd, t;
+	int listenfd, t = 1;
 	struct sockaddr_in servaddr;
 
 	listenfd = _socket(PF_INET, SOCK_STREAM, 0);
@@ -873,14 +911,12 @@ int init_socket(int port) {
 
 	_bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
 
-	_listen(listenfd, LISTENQ);
+	return listenfd;	
 }
 
 void clean(pthread_mutex_t *mutex, pthread_cond_t *cond, pthread_mutex_t *mfinished, pthread_mutex_t *mbank,
 				pthread_mutex_t *mcur_run, pthread_mutex_t *mhb, pthread_mutex_t *mnr, struct horse *horses, int listenfd) {
-	fprintf(stderr, "Start cleaning...\n");
-	fflush(stderr);
-	_close(listenfd);
+
 	fprintf(stderr, "Global mutex\n");
 	fflush(stderr);
 	_pthread_mutex_destroy(mutex);
@@ -892,6 +928,7 @@ void clean(pthread_mutex_t *mutex, pthread_cond_t *cond, pthread_mutex_t *mfinis
 	_pthread_mutex_destroy(mbank);
 	fprintf(stderr, "Current run mutex\n");
 	fflush(stderr);
+
 	_pthread_mutex_destroy(mcur_run);
 	_pthread_mutex_destroy(mhb);
 	_pthread_mutex_destroy(mnr);
@@ -923,15 +960,7 @@ int main(int argc, char **argv) {
 	/*parse port*/
 	port = atoi(argv[1]);
 
-	//listenfd = init_socket(port);
-
-	listenfd = _socket(PF_INET, SOCK_STREAM, 0);
-	memset(&servaddr, sizeof(char), sizeof(servaddr));			
-	servaddr.sin_family = AF_INET;
-	servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-	servaddr.sin_port = htons(port);
-	_setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &t, sizeof(t));	
-	_bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
+	listenfd = init_socket(port);
 	_listen(listenfd, LISTENQ);
 
 	init_sync(&mutex, &cond, &mfinished, &mbank, &mcur_run, &mhb, &mnr);	
@@ -945,10 +974,7 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "races per hour %u should be more than 0 and less than 61\n", pperh);
 		goto clean;
 	}
-#if 1
-	fprintf(stderr, "delay = %u\n", (60 * 60) / pperh);
-	fflush(stderr);
-#endif
+
 	init_signals();	
 	srand(time(NULL));	
 	init_service(&service, &mfinished, &mbank, &mcur_run, &mhb, &mnr, (unsigned int)(60 * 60 / pperh));	
