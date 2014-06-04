@@ -1,5 +1,5 @@
 GCC=gcc
-CFLAGS=-g #-Wall -Wextra
+CFLAGS=-g -Wall -Wextra
 OBJ=lib.o derby.o list.o
 SRC=src
 BIN=bin
