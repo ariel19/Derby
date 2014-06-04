@@ -22,7 +22,7 @@
 // horse
 #define HORSE_NAME 				16
 #define HORSE_START_STRENGTH 	100
-#define HORSE_RUN				8
+#define HORSE_RUN				2
 #define TRACK_DISTANCE			100
 // user
 #define USER_LOGIN_LENGTH		16

@@ -575,7 +575,7 @@ start:
 		
 		// means that horse has finished a track
 		if (horse->distance >= TRACK_DISTANCE) {
-			fprintf(stderr, "horse %s: got a distance, strength = %d\n", horse->name, horse->strength);
+			fprintf(stderr, "horse %s: got a distance\n, strength = %d\n", horse->name, horse->strength);
 			_pthread_mutex_lock(service->mfinished);
 			if (service->finished) {
 				_pthread_mutex_unlock(service->mfinished);
