@@ -2,27 +2,25 @@
 
 #include <pthread.h>
 
-// return codes
-//#define NULL_PTR					1
 // file parsing errors
-#define FILE_CANONICALIZE_ERROR		2
-#define FILE_GETLINE_ERROR			3
-#define FILE_INVALID_FORMAT			4
+#define FILE_CANONICALIZE_ERROR		0xf0
+#define FILE_GETLINE_ERROR			0xf1
+#define FILE_INVALID_FORMAT			0xf2
 // service errors
-#define SERVICE_INVALID_METHOD		5
-#define SERVICE_NON_FREE			6
-#define SERVICE_LOGIN_ALREADY		7
-#define SERVICE_LOGIN_IS_BLANK		8
-#define SERVICE_LOGIN_NONE			9
-#define SERVICE_INVALID_MONEY_FORMAT 10
-#define SERVICE_INVALID_BET_FORMAT	11
-#define SERVICE_RACE_FIRST_RUN		12
-#define SERVICE_RACE_ABSENT_HORSE	13
+#define SERVICE_INVALID_METHOD		0x50
+#define SERVICE_NON_FREE			0x51
+#define SERVICE_LOGIN_ALREADY		0x52
+#define SERVICE_LOGIN_IS_BLANK		0x53
+#define SERVICE_LOGIN_NONE			0x54
+#define SERVICE_INVALID_MONEY_FORMAT 0x55
+#define SERVICE_INVALID_BET_FORMAT	0x56
+#define SERVICE_RACE_FIRST_RUN		0x57
+#define SERVICE_RACE_ABSENT_HORSE	0x58
 
 // horse
 #define HORSE_NAME 				16
 #define HORSE_START_STRENGTH 	100
-#define HORSE_RUN				2
+#define HORSE_RUN				8
 #define TRACK_DISTANCE			100
 // user
 #define USER_LOGIN_LENGTH		16
@@ -31,6 +29,7 @@
 #define MSG_MAXLEN				32
 #define CLI_FUNC				8
 #define REQ_MTHD				3
+#define MAX_RACE_NUM			60
 
 typedef unsigned char byte;
 
@@ -77,7 +76,6 @@ struct horse {
 	struct service *service;
 };
 
-// TODO: fullfill structure
 struct user {
 	char name[USER_LOGIN_LENGTH + 1];
 	int money;
@@ -88,14 +86,4 @@ struct user {
 	int id;
 	pthread_mutex_t *mhb;
 	pthread_mutex_t *mnr;
-};
-
-struct list_user {
-	struct user_node *head; 
-	struct user_node *tail;
-};
-
-struct user_node {
-	struct user *user;
-	struct user_node *next;
 };

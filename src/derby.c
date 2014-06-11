@@ -138,8 +138,8 @@ byte req_login(const char *req, char **resp, struct user *user) {
 		++_ptr;
 	
 	strncpy(user->name, ptr, _ptr - ptr > USER_LOGIN_LENGTH ? USER_LOGIN_LENGTH : _ptr - ptr);
-	*resp = _malloc(32 * sizeof(char));
-	snprintf(*resp, 32, "Logged in: %s\n", user->name);
+	*resp = _malloc(MSG_MAXLEN * sizeof(char));
+	snprintf(*resp, MSG_MAXLEN, "Logged in: %s\n", user->name);
 
 	return EXIT_SUCCESS;
 }
@@ -167,9 +167,9 @@ byte req_widthdrawal(const char *req, char **resp, struct user *user) {
 	}
 	
 	user->money -= val;
-	*resp = _malloc(64 * sizeof(char));
+	*resp = _malloc(MSG_MAXLEN * 2 * sizeof(char));
 
-	snprintf(*resp, 64, "You have uncredit accout with %u credits.\n", (unsigned int)val);
+	snprintf(*resp, MSG_MAXLEN * 2, "You have uncredit accout with %u credits.\n", (unsigned int)val);
 
 	return EXIT_SUCCESS;
 }
@@ -197,9 +197,9 @@ byte req_payment(const char *req, char **resp, struct user *user) {
 	}
 	
 	user->money += val;
-	*resp = _malloc(64 * sizeof(char));
+	*resp = _malloc(MSG_MAXLEN * 2 * sizeof(char));
 
-	snprintf(*resp, 64, "You have credit account with %u credits.\n", (unsigned int)val);
+	snprintf(*resp, MSG_MAXLEN * 2, "You have credit account with %u credits.\n", (unsigned int)val);
 
 	return EXIT_SUCCESS;
 }
@@ -273,7 +273,7 @@ byte req_bet(const char *req, char **resp, struct user *user) {
 		++_ptr;
 	
 	user->bet = val;
-	*resp = _malloc(64 * sizeof(char));
+	*resp = _malloc(MSG_MAXLEN * 2 * sizeof(char));
 
 	// search for horse in currently running
 	for (i = 0; i < HORSE_RUN; ++i) {
@@ -296,7 +296,7 @@ byte req_bet(const char *req, char **resp, struct user *user) {
 	user->money -= (unsigned int)val;
 	_pthread_mutex_unlock(user->service->mbank);
 	
-	snprintf(*resp, 64, "Bet %u credits on %s horse.\n", (unsigned int)val, ptr);
+	snprintf(*resp, MSG_MAXLEN * 2, "Bet %u credits on %s horse.\n", (unsigned int)val, ptr);
 
 	return EXIT_SUCCESS;
 }
@@ -429,7 +429,6 @@ void* client_thread(void *arg) {
 				if (buf[0] == '\r' || buf[0] == '\n')
 					continue;
 				ret = parse_request(buf, n, &resp, &user);
-				// fprintf(stderr, "RET: %d\n", ret);
 				// send response
 				_write(sockfd, (void *)resp, strlen(resp));
 				if (!ret)
@@ -442,36 +441,10 @@ void* client_thread(void *arg) {
 				continue;
 
 			_pthread_mutex_lock(user.service->mfinished);	
-			if (!user.service->finished) {
-				/*
-				p = horse_buf;	
-				for (i = 0; i < HORSE_RUN; ++i) {
-					n = snprintf(p, HORSE_NAME + 12, "%s: %u\n", user.service->current_run[i]->name, user.service->current_run[i]->distance);
-					p += n;	
-				}
-				snprintf(p, HORSE_NAME + 12, "%s\n", "====================");					
-					
-				_write(sockfd, (void *)horse_buf, strlen(horse_buf));
-				*/
+			if (!user.service->finished)
 				send_horse_cur_info(sockfd, horse_buf, &user);
-	
-			}
 			else {
 				_money = 0;
-				/*
-				if (user.horse && !strcmp(user.horse->name, user.service->win->name)) {
-					_pthread_mutex_lock(user.service->mbank);
-
-					_pthread_mutex_lock(user.service->mhb);	
-					_money = user.service->bank / user.service->copy_horse_bet[user.id];
-					--user.service->copy_horse_bet[user.id];	
-					user.service->bank -= _money;
-					user.money += _money;
-					
-					_pthread_mutex_unlock(user.service->mhb);
-					_pthread_mutex_unlock(user.service->mbank);			
-				} 
-				*/
 				update_money(&user, &_money);
 				
 				snprintf(buf, MSG_MAXLEN * 2, "Winner: %s; you won %u; your current accout: %u\n", user.service->win->name, _money, user.money);
@@ -524,18 +497,27 @@ unsigned int horse_make_step(struct horse *horse) {
 	if (horse->strength < 0)
 		horse->strength = 7;
 
-
-	// fprintf(stderr, "step: %d\n", ret);
 	return ret;
 }
 
 unsigned int horse_restore_strength(unsigned int strength) {
 	double rnd = (double)rand() / (double)RAND_MAX;
 	unsigned int ret = (500 * rnd) / strength + rand() % 5 + 1;
-	// fprintf(stderr, "restore %u\n", ret);
 	return ret;
 }
 
+/// =======================================
+/// FUNCTION RESPONSEBLE FOR HORSE BEHAVIOR
+/// =======================================
+/// DESCRIPTION: 
+/// function is responsible for horse behavior
+/// at the beginning horse is waiting on the cond. var., 
+/// checking current state, if horse is not running, it's
+/// strength is restored.
+/// If horse is running, then we are checking if there is no winner,
+/// if any horse had already finished, then set start state and then
+/// go back to the function beginning. In the other case horse makes 
+/// a step, according to the predefined algorithm
 void* horse_thread(void *arg) {
 	struct horse *horse = (struct horse *)arg;
 	struct service *service = horse->service;
@@ -579,7 +561,7 @@ start:
 				_pthread_mutex_unlock(service->mfinished);
 				break;
 			}
-			fprintf(stderr, "horse %s: WIN THE RACE\n", horse->name);	
+			fprintf(stderr, "horse %s: WON THE RACE\n", horse->name);	
 			service->win = horse;
 			service->finished = 1;
 
@@ -632,11 +614,8 @@ void choose_run_horses(struct horse *horses, size_t horse_number, struct service
 	// choose randomly
 	while(cnt != HORSE_RUN) {	
 		i = rand() % horse_number;
-		//fprintf(stderr, "random: %d\n", i);
 		if (!rh[i]) {
 			rh[i] = 1;
-			//fprintf(stderr, "choose: %d %s\n", i, horses[i].name);
-			//fflush(stderr);
 			service->current_run[cnt++] = &horses[i];
 		}
 	}
@@ -681,19 +660,6 @@ void post_race(struct service *service, struct horse *horses, size_t horse_num) 
 }
 
 void play(pthread_cond_t *cond, struct service *service, struct horse *horses, size_t horse_num) {
-	/*	
-	// copy horse bets
-	_pthread_mutex_lock(service->mhb);
-	memcpy(service->copy_horse_bet, service->horse_bet, sizeof(unsigned int) * HORSE_RUN);	
-	_pthread_mutex_unlock(service->mhb);
-	
-	// be sure that noone is using value
-	_pthread_mutex_lock(service->mfinished);
-	service->finished = 0;
-	_pthread_mutex_unlock(service->mfinished);
-
-	start_horses(service);
-	*/
 	init_race(service);
 
 	while(run) {
@@ -728,23 +694,6 @@ check_for_horses:
 	}
 
 	post_race(service, horses, horse_num);
-	/*
-	_pthread_mutex_lock(service->mcur_run);
-	service->cur_run = HORSE_RUN;
-	_pthread_mutex_unlock(service->mcur_run);
-
-	// choose new horses
-	memset(service->current_run, 0, sizeof(struct horse *) * HORSE_RUN);
-	choose_run_horses(horses, horse_num, service);	
-	memset(service->horse_bet, 0, sizeof(unsigned int) * HORSE_RUN);
-	
-	// set new time for next run
-	set_next_race_time(service);		
-
-	run = 0; 
-
-	alarm(service->delay);
-	*/
 } 
 
 void server_work(int listenfd, pthread_cond_t *cond, struct service *service, struct horse *horses, size_t horse_num) {
@@ -754,7 +703,7 @@ void server_work(int listenfd, pthread_cond_t *cond, struct service *service, st
 	struct user *user;
 	socklen_t clilen;
 
-	/*for signal handling*/
+	// for signal handling
 	
 	t_sigmask(SIGINT, SIG_UNBLOCK);
 	t_sigmask(SIGALRM, SIG_UNBLOCK);	
@@ -915,20 +864,6 @@ int init_socket(int port) {
 
 void clean(pthread_mutex_t *mutex, pthread_cond_t *cond, pthread_mutex_t *mfinished, pthread_mutex_t *mbank, 
 			pthread_mutex_t *mcur_run, pthread_mutex_t *mhb, pthread_mutex_t *mnr, struct horse *horses, int listenfd) {
-
-/*
-	fprintf(stderr, "Global mutex\n");
-	fflush(stderr);
-	_pthread_mutex_destroy(mutex);
-	fprintf(stderr, "Finished mutex\n");
-	fflush(stderr);
-	_pthread_mutex_destroy(mfinished);
-	fprintf(stderr, "Bank mutex\n");
-	fflush(stderr);
-	_pthread_mutex_destroy(mbank);
-	fprintf(stderr, "Current run mutex\n");
-	fflush(stderr);
-*/
 	_pthread_mutex_destroy(mcur_run);
 	_pthread_mutex_destroy(mhb);
 	_pthread_mutex_destroy(mnr);
@@ -954,7 +889,7 @@ int main(int argc, char **argv) {
 		exit(EXIT_FAILURE);
 	}
 
-	/*parse port*/
+	// parse port
 	port = atoi(argv[1]);
 
 	listenfd = init_socket(port);
@@ -967,8 +902,8 @@ int main(int argc, char **argv) {
 	if (ret)
 		goto clean;	
 	
-	if (!pperh || pperh > 60) {
-		fprintf(stderr, "races per hour %u should be more than 0 and less than 61\n", pperh);
+	if (!pperh || pperh > MAX_RACE_NUM) {
+		fprintf(stderr, "races per hour %u should be more than 0 and less than %d\n", pperh, MAX_RACE_NUM + 1);
 		goto clean;
 	}
 
@@ -979,7 +914,7 @@ int main(int argc, char **argv) {
 	server_work(listenfd, &cond, &service, horses, horse_num);
 	
 clean:
-	/*closing listen file desc*/
+	// cleaning
 	clean(&mutex, &cond, &mfinished, &mbank, &mcur_run, &mhb, &mnr, horses, listenfd);
 
 	return EXIT_SUCCESS;
