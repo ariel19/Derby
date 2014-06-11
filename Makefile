@@ -1,6 +1,6 @@
 GCC=gcc
 CFLAGS=-g -Wall -Wextra
-OBJ=lib.o derby.o list.o
+OBJ=lib.o derby.o
 SRC=src
 BIN=bin
 LIB=-lpthread
@@ -16,9 +16,6 @@ derby.o: ${SRC}/derby.c
 
 lib.o: ${SRC}/lib.c
 	${GCC} -c ${CFLAGS} ${SRC}/lib.c
-
-list.o: ${SRC}/list.c
-	${GCC} -c ${CFLAGS} ${SRC}/list.c
 
 .PHONY: clean
 clean:

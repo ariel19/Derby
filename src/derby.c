@@ -76,6 +76,7 @@ void init_signals() {
 // ==============
 // TIME FUNCTIONS
 // ==============
+
 void set_next_race_time(struct service *service) {
 	time_t now = time(NULL);
 	struct tm *tm_now = localtime(&now);
@@ -96,7 +97,10 @@ char* get_next_race_time(struct service *service) {
 	return ret;	
 }
 
-// define pointers to cli func
+// ============================
+// POINTERS TO CLI REQUEST FUNC
+// ============================
+
 byte req_login(const char *req, char **resp, struct user *user);
 byte req_widthdrawal(const char *req, char **resp, struct user *user);
 byte req_payment(const char *req, char **resp, struct user *user);
@@ -314,7 +318,7 @@ byte parse_request(char *buf, size_t n, char **resp, struct user *user) {
 	if (n < REQ_MTHD)
 		goto inv_mth;
 
-	/*delete end of line*/
+	// delete end of line
 	for (j = 0; j < n; ++j)
 		if (buf[j] == '\r' || buf[j] == '\n')
 			buf[j] = 0;
@@ -322,7 +326,7 @@ byte parse_request(char *buf, size_t n, char **resp, struct user *user) {
 	strncpy(method, buf, REQ_MTHD);	
 	method[REQ_MTHD] = 0; // for double security
 	
-	/* check if it is valid method */
+	// check if it is valid method
 	for (j = 0; j < CLI_FUNC; ++j)
 		if (!strcmp(method, req[j]))
 			break;
@@ -416,12 +420,8 @@ void* client_thread(void *arg) {
 			// someone wants to write	
 			// write on client terminal
 			if (!(n = read(sockfd, buf, MSG_MAXLEN))) {
-				if (errno == EINTR) {
-#ifdef DEBUG
-					fprintf(stderr, "interrupted by signal\n");
-#endif
+				if (errno == EINTR)
 					continue;
-				}
 				break;
 			}
 			else {
@@ -506,18 +506,26 @@ unsigned int horse_restore_strength(unsigned int strength) {
 	return ret;
 }
 
-/// =======================================
+/// ***************************************
 /// FUNCTION RESPONSEBLE FOR HORSE BEHAVIOR
-/// =======================================
+/// ***************************************
+
 /// DESCRIPTION: 
 /// function is responsible for horse behavior
 /// at the beginning horse is waiting on the cond. var., 
 /// checking current state, if horse is not running, it's
 /// strength is restored.
 /// If horse is running, then we are checking if there is no winner,
-/// if any horse had already finished, then set start state and then
+/// if any horse had already finished, then set start state and
 /// go back to the function beginning. In the other case horse makes 
-/// a step, according to the predefined algorithm
+/// a step, according to the predefined algorithm. After that horse
+/// checks if it had reached the finish (comparing current distance
+/// with predefined distance). If it's true, then we check finished
+/// variable value, because probably another horse had finished the 
+/// race, when thread horse was making a step. If no one had finished
+/// the race, then set info about winner and set finished variable
+/// equals to true. Go to the end of function and set start state. 
+
 void* horse_thread(void *arg) {
 	struct horse *horse = (struct horse *)arg;
 	struct service *service = horse->service;
@@ -581,7 +589,6 @@ start:
 
 	_pthread_mutex_lock(service->mcur_run);
 	--service->cur_run;
-	// fprintf(stderr, "cur_run %d\n", service->cur_run);
 	_pthread_mutex_unlock(service->mcur_run);
 
 	goto start;
@@ -669,13 +676,9 @@ void play(pthread_cond_t *cond, struct service *service, struct horse *horses, s
 
 			// send if someone is waiting
 			_pthread_cond_broadcast(cond);
-#ifdef DEBUG
-			fprintf(stderr, "Waiting for a horse threads finishing\n");
-#endif
 check_for_horses:
 			_pthread_mutex_lock(service->mcur_run);
 			if (!service->cur_run) {
-
 				_pthread_mutex_unlock(service->mcur_run);	
 				break;
 			}
@@ -686,9 +689,6 @@ check_for_horses:
 			}
 		}
 		_pthread_mutex_unlock(service->mfinished);	
-#ifdef DEBUG
-		fprintf(stderr, "=========================\nmain: sleeping 1 sec\n===============================\n");
-#endif
 		_sleep(1, 0);
 		_pthread_cond_broadcast(cond);
 	}
@@ -704,7 +704,6 @@ void server_work(int listenfd, pthread_cond_t *cond, struct service *service, st
 	socklen_t clilen;
 
 	// for signal handling
-	
 	t_sigmask(SIGINT, SIG_UNBLOCK);
 	t_sigmask(SIGALRM, SIG_UNBLOCK);	
 	
@@ -809,6 +808,7 @@ byte parse_conf_file(const char *file, struct horse **horses, unsigned int *hn, 
 // =================
 // SERVICE FUNCTIONS
 // =================
+
 void init_service(struct service *service, pthread_mutex_t *mf, pthread_mutex_t *mb, pthread_mutex_t *mcr, pthread_mutex_t *mhb, pthread_mutex_t *mnr, unsigned int delay) {
 	service->mfinished = mf;
 	service->mbank = mb;
